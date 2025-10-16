@@ -2,102 +2,127 @@
   <div class="todo-app">
     <h1>To-Do List</h1>
     
-    <div class="add-task">
-      <input
-        v-model="newTask"
-        type="text"
-        placeholder="Add new task to Priority..."
-        aria-label="New task"
-        @keyup.enter="addTask"
-      />
-      <button @click="addTask" aria-label="Add task">Add</button>
+    <div class="tabs" role="tablist">
+      <button
+        @click="activeTab = 'tasks'"
+        :class="{ active: activeTab === 'tasks' }"
+        role="tab"
+        :aria-selected="activeTab === 'tasks'"
+        aria-controls="tasks-panel"
+      >
+        Tasks
+      </button>
+      <button
+        @click="activeTab = 'editor'"
+        :class="{ active: activeTab === 'editor' }"
+        role="tab"
+        :aria-selected="activeTab === 'editor'"
+        aria-controls="editor-panel"
+      >
+        Markdown Editor
+      </button>
     </div>
 
-    <div class="error" v-if="error" role="alert">{{ error }}</div>
+    <div v-show="activeTab === 'tasks'" id="tasks-panel" role="tabpanel">
+      <div class="add-task">
+        <input
+          v-model="newTask"
+          type="text"
+          placeholder="Add new task to Priority..."
+          aria-label="New task"
+          @keyup.enter="addTask"
+        />
+        <button @click="addTask" aria-label="Add task">Add</button>
+      </div>
 
-    <div class="lists-container">
-      <section class="task-list" aria-labelledby="priority-heading">
-        <h2 id="priority-heading">Priority</h2>
-        <ul
-          @drop="onDrop($event, 'Priority')"
-          @dragover.prevent
-          @dragenter.prevent
-        >
-          <li
-            v-for="(task, index) in priorityTasks"
-            :key="`priority-${index}`"
-            :draggable="true"
-            @dragstart="onDragStart($event, 'Priority', index)"
-            class="task-item"
-          >
-            <input
-              type="checkbox"
-              :id="`priority-${index}`"
-              :checked="false"
-              @change="completeTask('Priority', index)"
-              :aria-label="`Mark ${task} as complete`"
-            />
-            <label :for="`priority-${index}`">{{ task }}</label>
-          </li>
-        </ul>
-      </section>
+      <div class="error" v-if="error" role="alert">{{ error }}</div>
 
-      <section class="task-list" aria-labelledby="other-heading">
-        <h2 id="other-heading">Other</h2>
-        <ul
-          @drop="onDrop($event, 'Other')"
-          @dragover.prevent
-          @dragenter.prevent
-        >
-          <li
-            v-for="(task, index) in otherTasks"
-            :key="`other-${index}`"
-            :draggable="true"
-            @dragstart="onDragStart($event, 'Other', index)"
-            class="task-item"
+      <div class="lists-container">
+        <section class="task-list" aria-labelledby="priority-heading">
+          <h2 id="priority-heading">Priority</h2>
+          <ul
+            @drop="onDrop($event, 'Priority')"
+            @dragover.prevent
+            @dragenter.prevent
           >
-            <input
-              type="checkbox"
-              :id="`other-${index}`"
-              :checked="false"
-              @change="handleOtherTaskCheck('Other', index)"
-              :aria-label="`Process ${task}`"
-            />
-            <label :for="`other-${index}`">{{ task }}</label>
-          </li>
-        </ul>
-      </section>
+            <li
+              v-for="(task, index) in priorityTasks"
+              :key="`priority-${index}`"
+              :draggable="true"
+              @dragstart="onDragStart($event, 'Priority', index)"
+              class="task-item"
+            >
+              <input
+                type="checkbox"
+                :id="`priority-${index}`"
+                :checked="false"
+                @change="completeTask('Priority', index)"
+                :aria-label="`Mark ${task} as complete`"
+              />
+              <label :for="`priority-${index}`">{{ task }}</label>
+            </li>
+          </ul>
+        </section>
 
-      <section class="task-list" aria-labelledby="done-heading">
-        <h2 id="done-heading">Done</h2>
-        <ul>
-          <li
-            v-for="(task, index) in doneTasks"
-            :key="`done-${index}`"
-            class="task-item done"
+        <section class="task-list" aria-labelledby="other-heading">
+          <h2 id="other-heading">Other</h2>
+          <ul
+            @drop="onDrop($event, 'Other')"
+            @dragover.prevent
+            @dragenter.prevent
           >
-            <input
-              type="checkbox"
-              :id="`done-${index}`"
-              :checked="true"
-              disabled
-              :aria-label="`Completed: ${task}`"
-            />
-            <label :for="`done-${index}`">{{ task }}</label>
-          </li>
-        </ul>
-      </section>
+            <li
+              v-for="(task, index) in otherTasks"
+              :key="`other-${index}`"
+              :draggable="true"
+              @dragstart="onDragStart($event, 'Other', index)"
+              class="task-item"
+            >
+              <input
+                type="checkbox"
+                :id="`other-${index}`"
+                :checked="false"
+                @change="handleOtherTaskCheck('Other', index)"
+                :aria-label="`Process ${task}`"
+              />
+              <label :for="`other-${index}`">{{ task }}</label>
+            </li>
+          </ul>
+        </section>
+
+        <section class="task-list" aria-labelledby="done-heading">
+          <h2 id="done-heading">Done</h2>
+          <ul>
+            <li
+              v-for="(task, index) in doneTasks"
+              :key="`done-${index}`"
+              class="task-item done"
+            >
+              <input
+                type="checkbox"
+                :id="`done-${index}`"
+                :checked="true"
+                disabled
+                :aria-label="`Completed: ${task}`"
+              />
+              <label :for="`done-${index}`">{{ task }}</label>
+            </li>
+          </ul>
+        </section>
+      </div>
     </div>
 
-    <div class="markdown-editor">
-      <h2>Markdown Editor</h2>
-      <textarea
-        v-model="markdownContent"
-        @blur="saveMarkdown"
-        rows="15"
-        aria-label="Markdown editor"
-      ></textarea>
-      <button @click="saveMarkdown">Save Markdown</button>
+    <div v-show="activeTab === 'editor'" id="editor-panel" role="tabpanel">
+      <div class="markdown-editor">
+        <h2>Markdown Editor</h2>
+        <textarea
+          v-model="markdownContent"
+          @blur="saveMarkdown"
+          rows="20"
+          aria-label="Markdown editor"
+        ></textarea>
+        <button @click="saveMarkdown">Save Markdown</button>
+      </div>
     </div>
   </div>
 </template>
@@ -107,6 +132,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 
 const API_BASE = 'http://localhost:3001/api';
 
+const activeTab = ref('tasks');
 const newTask = ref('');
 const markdownContent = ref('');
 const priorityTasks = ref([]);
@@ -372,6 +398,33 @@ onUnmounted(() => {
   width: 100%;
 }
 
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px solid #ccc;
+}
+
+.tabs button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.6);
+  transition: all 0.3s;
+}
+
+.tabs button.active {
+  color: rgba(255, 255, 255, 0.87);
+  border-bottom-color: #646cff;
+}
+
+.tabs button:hover {
+  color: rgba(255, 255, 255, 0.87);
+}
+
 .add-task {
   display: flex;
   gap: 0.5rem;
@@ -391,14 +444,18 @@ onUnmounted(() => {
 }
 
 .lists-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 2rem;
-  margin-bottom: 2rem;
+}
+
+.task-list {
+  width: 100%;
 }
 
 .task-list h2 {
   margin-top: 0;
+  margin-bottom: 1rem;
 }
 
 .task-list ul {
@@ -412,7 +469,7 @@ onUnmounted(() => {
 
 .task-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   padding: 0.5rem;
   margin-bottom: 0.5rem;
@@ -428,6 +485,8 @@ onUnmounted(() => {
 
 .task-item input[type="checkbox"] {
   cursor: pointer;
+  margin-top: 0.25rem;
+  flex-shrink: 0;
 }
 
 .task-item.done input[type="checkbox"] {
@@ -437,6 +496,8 @@ onUnmounted(() => {
 .task-item label {
   flex: 1;
   cursor: pointer;
+  word-wrap: break-word;
+  white-space: pre-wrap;
 }
 
 .task-item.done label {
@@ -445,7 +506,7 @@ onUnmounted(() => {
 }
 
 .markdown-editor {
-  margin-top: 2rem;
+  margin-top: 1rem;
 }
 
 .markdown-editor textarea {
@@ -458,9 +519,14 @@ onUnmounted(() => {
   margin-top: 0.5rem;
 }
 
-@media (max-width: 768px) {
-  .lists-container {
-    grid-template-columns: 1fr;
+@media (prefers-color-scheme: light) {
+  .tabs button {
+    color: rgba(0, 0, 0, 0.6);
+  }
+  
+  .tabs button.active,
+  .tabs button:hover {
+    color: rgba(0, 0, 0, 0.87);
   }
 }
 </style>
