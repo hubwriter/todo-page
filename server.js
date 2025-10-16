@@ -76,7 +76,7 @@ app.post('/api/todo', fileOperationLimiter, async (req, res) => {
 // WebSocket-like endpoint for file change notifications
 let changeClients = [];
 
-app.get('/api/todo/watch', (req, res) => {
+app.get('/api/todo/watch', fileOperationLimiter, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
