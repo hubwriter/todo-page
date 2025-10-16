@@ -122,9 +122,24 @@ npm run preview
 ## Troubleshooting
 
 ### Port Already in Use
-If port 3001 or 5173 is already in use, stop the conflicting process or modify the ports in:
-- `server.js` - Change the `PORT` constant
-- `vite.config.js` - Add server configuration
+If port 3001 or 5173 is already in use, you can change them:
+
+**Backend (server.js):**
+Change the `PORT` constant:
+```javascript
+const PORT = 3002; // Change from 3001
+```
+
+**Frontend (vite.config.js):**
+Add server configuration:
+```javascript
+export default defineConfig({
+  plugins: [vue()],
+  server: {
+    port: 5174 // Change from default 5173
+  }
+})
+```
 
 ### File Not Found
 Ensure the markdown file exists at the specified path. The app will create a default file if it doesn't exist.
