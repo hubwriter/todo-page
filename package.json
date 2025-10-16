@@ -13,7 +13,8 @@
     "vue": "^3.5.13",
     "express": "^4.21.2",
     "cors": "^2.8.5",
-    "chokidar": "^4.0.3"
+    "chokidar": "^4.0.3",
+    "express-rate-limit": "^7.5.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",

@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import { watch } from 'chokidar';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import rateLimit from 'express-rate-limit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -14,6 +15,15 @@ const PORT = 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Rate limiting for file operations
+const fileOperationLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60, // limit each IP to 60 requests per minute
+  message: 'Too many requests, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Default file path - can be overridden via environment variable
 const TODO_FILE_PATH = process.env.TODO_FILE_PATH || join(__dirname, 'todo.md');
@@ -37,7 +47,7 @@ async function ensureFileExists() {
 }
 
 // Get the content of the todo file
-app.get('/api/todo', async (req, res) => {
+app.get('/api/todo', fileOperationLimiter, async (req, res) => {
   try {
     await ensureFileExists();
     const content = await fs.readFile(TODO_FILE_PATH, 'utf-8');
@@ -49,7 +59,7 @@ app.get('/api/todo', async (req, res) => {
 });
 
 // Update the content of the todo file
-app.post('/api/todo', async (req, res) => {
+app.post('/api/todo', fileOperationLimiter, async (req, res) => {
   try {
     const { content } = req.body;
     if (typeof content !== 'string') {
