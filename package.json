@@ -5,20 +5,23 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"node server.js\" \"vite\"",
+    "dev:vite": "vite",
+    "dev:server": "node server.js",
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server.js"
   },
   "dependencies": {
-    "vue": "^3.5.13",
-    "express": "^4.21.2",
-    "cors": "^2.8.5",
     "chokidar": "^4.0.3",
-    "express-rate-limit": "^7.5.0"
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "marked": "^16.4.0",
+    "vue": "^3.5.13"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
-    "vite": "^6.0.3",
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "vite": "^6.0.3"
   }
 }

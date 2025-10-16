@@ -25,8 +25,37 @@ const fileOperationLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Default file path - can be overridden via environment variable
-const TODO_FILE_PATH = process.env.TODO_FILE_PATH || join(__dirname, 'todo.md');
+// Load configuration
+async function loadConfig() {
+  try {
+    const configPath = join(__dirname, 'config.json');
+    const configData = await fs.readFile(configPath, 'utf-8');
+    const config = JSON.parse(configData);
+    return config;
+  } catch (error) {
+    // Config file doesn't exist or is invalid, return empty object
+    return {};
+  }
+}
+
+// Get TODO file path from config, environment, or default
+async function getTodoFilePath() {
+  const config = await loadConfig();
+
+  // Priority: environment variable > config file > default
+  if (process.env.TODO_FILE_PATH) {
+    return process.env.TODO_FILE_PATH;
+  }
+
+  if (config.todoFilePath) {
+    return config.todoFilePath;
+  }
+
+  return join(__dirname, 'todo.md');
+}
+
+// Initialize TODO file path
+const TODO_FILE_PATH = await getTodoFilePath();
 
 console.log(`Using todo file at: ${TODO_FILE_PATH}`);
 
@@ -70,6 +99,54 @@ app.post('/api/todo', fileOperationLimiter, async (req, res) => {
   } catch (error) {
     console.error('Error writing file:', error);
     res.status(500).json({ error: 'Failed to write todo file' });
+  }
+});
+
+// Serve local image files
+app.get('/api/image', async (req, res) => {
+  try {
+    const { path } = req.query;
+
+    if (!path) {
+      return res.status(400).json({ error: 'Image path is required' });
+    }
+
+    // Security: Only allow absolute paths starting with /Users/ (macOS)
+    // Adjust this based on your security requirements
+    if (!path.startsWith('/Users/')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Check if file exists and is readable
+    try {
+      await fs.access(path, fs.constants.R_OK);
+    } catch {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+
+    // Read and serve the file
+    const imageBuffer = await fs.readFile(path);
+
+    // Determine content type based on file extension
+    const ext = path.toLowerCase().split('.').pop();
+    const contentTypes = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp',
+      'svg': 'image/svg+xml',
+      'bmp': 'image/bmp',
+      'ico': 'image/x-icon'
+    };
+
+    const contentType = contentTypes[ext] || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+    res.send(imageBuffer);
+  } catch (error) {
+    console.error('Error serving image:', error);
+    res.status(500).json({ error: 'Failed to serve image' });
   }
 });
 

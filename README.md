@@ -37,16 +37,43 @@ npm install
 
 ### Configuration
 
-By default, the app uses a `todo.md` file in the project root. To use a custom file path:
+The app stores tasks in a markdown file. There are three ways to configure the file location (in order of priority):
+
+#### Option 1: Configuration File (Recommended)
+
+Create a `config.json` file in the project root:
 
 ```bash
-export TODO_FILE_PATH="/Users/alistair/work-stuff/tech-writing/todo.md"
+cp config.json.example config.json
+```
+
+Edit `config.json` to specify your desired file path:
+
+```json
+{
+  "todoFilePath": "/Users/yourname/path/to/todo.md"
+}
+```
+
+#### Option 2: Environment Variable
+
+Set the `TODO_FILE_PATH` environment variable:
+
+```bash
+export TODO_FILE_PATH="/Users/yourname/path/to/todo.md"
 ```
 
 Or set it directly when running:
+
 ```bash
-TODO_FILE_PATH="/Users/alistair/work-stuff/tech-writing/todo.md" npm run dev
+TODO_FILE_PATH="/Users/yourname/path/to/todo.md" npm run dev
 ```
+
+#### Option 3: Default Location
+
+If no configuration is provided, the app uses `todo.md` in the project root directory.
+
+**Note**: The `config.json` file is ignored by git, so you can safely store your personal file paths without committing them to the repository.
 
 ### Running the App
 
