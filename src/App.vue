@@ -54,7 +54,6 @@
             @click="cancelEdit"
             aria-label="Cancel editing"
             class="btn-secondary"
-            :disabled="!newTask.trim()"
           >
             Cancel
           </button>
