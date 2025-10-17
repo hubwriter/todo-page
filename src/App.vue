@@ -262,12 +262,12 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 // Configure marked for inline rendering with HTML support
 marked.setOptions({
   breaks: true,
-  gfm: true,
-  sanitize: false // Allow HTML tags like <img>
+  gfm: true
 });
 
 const API_BASE = '/api';
@@ -340,8 +340,14 @@ function renderMarkdown(text) {
   if (!text) return '';
   // Transform local image paths to API URLs first
   text = transformImagePaths(text);
-  // Use marked.parseInline for inline rendering while allowing HTML
-  return marked.parseInline(text, { async: false });
+  // Use marked.parseInline for inline rendering
+  const rawHtml = marked.parseInline(text, { async: false });
+  // Sanitize the output to prevent XSS attacks while allowing safe HTML
+  return DOMPurify.sanitize(rawHtml, {
+    ALLOWED_TAGS: ['a', 'img', 'strong', 'em', 'code', 'del', 'br'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel'],
+    ALLOW_DATA_ATTR: false
+  });
 }
 
 // Parse markdown content into tasks
