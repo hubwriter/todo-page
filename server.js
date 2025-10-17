@@ -7,6 +7,17 @@ import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import helmet from 'helmet';
+import {
+  MAX_BODY_SIZE,
+  MAX_TODO_SIZE,
+  MAX_IMAGE_SIZE,
+  RATE_LIMIT_WINDOW_MS,
+  RATE_LIMIT_MAX_REQUESTS,
+  ALLOWED_IMAGE_EXTENSIONS,
+  IMAGE_CONTENT_TYPES,
+  DEFAULT_TODO_CONTENT
+} from './src/constants.js';
+import { validatePath, validateFileExtension } from './server/pathUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -31,12 +42,12 @@ app.use(helmet({
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '1mb' })); // Limit request body size to prevent DoS
+app.use(express.json({ limit: `${MAX_BODY_SIZE}b` }));
 
 // Rate limiting for file operations
 const fileOperationLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 60, // limit each IP to 60 requests per minute
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: RATE_LIMIT_MAX_REQUESTS,
   message: 'Too many requests, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -99,13 +110,7 @@ async function ensureFileExists() {
   try {
     await fs.access(TODO_FILE_PATH);
   } catch {
-    const defaultContent = `# Priority
-
-# Other
-
-# Done
-`;
-    await fs.writeFile(TODO_FILE_PATH, defaultContent, 'utf-8');
+    await fs.writeFile(TODO_FILE_PATH, DEFAULT_TODO_CONTENT, 'utf-8');
     console.log('Created default todo.md file');
   }
 }
@@ -132,9 +137,9 @@ app.post('/api/todo', fileOperationLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Content must be a string' });
     }
 
-    // Security: limit content size to prevent DoS (5MB max)
-    if (content.length > 5 * 1024 * 1024) {
-      return res.status(413).json({ error: 'Content too large. Maximum size is 5MB' });
+    // Security: limit content size to prevent DoS
+    if (content.length > MAX_TODO_SIZE) {
+      return res.status(413).json({ error: `Content too large. Maximum size is ${MAX_TODO_SIZE / (1024 * 1024)}MB` });
     }
 
     await fs.writeFile(TODO_FILE_PATH, content, 'utf-8');
@@ -154,45 +159,34 @@ app.get('/api/image', fileOperationLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Image path is required' });
     }
 
-    // Security: validate and normalize the path
-    const normalizedPath = normalize(resolve(path));
-
-    // Prevent directory traversal
-    if (normalizedPath.includes('..') || path.includes('..')) {
-      return res.status(403).json({ error: 'Invalid path' });
+    // Validate path security
+    const pathValidation = validatePath(path);
+    if (!pathValidation.isValid) {
+      return res.status(403).json({ error: pathValidation.error });
     }
 
-    // Security: Only allow absolute paths starting with /Users/ (macOS) or /home/ (Linux)
-    // This prevents accessing system files
-    if (!normalizedPath.startsWith('/Users/') && !normalizedPath.startsWith('/home/')) {
-      return res.status(403).json({ error: 'Access denied: Invalid path location' });
-    }
+    const normalizedPath = pathValidation.normalizedPath;
 
-    // Additional security: block access to hidden files and sensitive directories
-    const pathParts = normalizedPath.split('/').filter(Boolean);
-    const blockedPatterns = ['.ssh', '.aws', '.config', 'node_modules', '.git', '.env'];
-    if (pathParts.some(part => part.startsWith('.') || blockedPatterns.includes(part))) {
-      return res.status(403).json({ error: 'Access denied: Sensitive directory' });
-    }
-
-    // Validate file extension to ensure it's an image
-    const ext = normalizedPath.toLowerCase().split('.').pop();
-    const allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'];
-    if (!allowedExtensions.includes(ext)) {
+    // Validate file extension
+    const extensionValidation = validateFileExtension(normalizedPath, ALLOWED_IMAGE_EXTENSIONS);
+    if (!extensionValidation.isValid) {
       return res.status(400).json({ error: 'Invalid image file type' });
     }
 
     // Check if file exists and is readable
     try {
       const stats = await fs.stat(normalizedPath);
+
       // Ensure it's a file, not a directory
       if (!stats.isFile()) {
         return res.status(400).json({ error: 'Path is not a file' });
       }
-      // Check file size to prevent serving huge files (max 10MB)
-      if (stats.size > 10 * 1024 * 1024) {
+
+      // Check file size to prevent serving huge files
+      if (stats.size > MAX_IMAGE_SIZE) {
         return res.status(413).json({ error: 'File too large' });
       }
+
       await fs.access(normalizedPath, fs.constants.R_OK);
     } catch {
       return res.status(404).json({ error: 'Image not found' });
@@ -200,20 +194,8 @@ app.get('/api/image', fileOperationLimiter, async (req, res) => {
 
     // Read and serve the file
     const imageBuffer = await fs.readFile(normalizedPath);
+    const contentType = IMAGE_CONTENT_TYPES[extensionValidation.extension] || 'application/octet-stream';
 
-    // Determine content type based on file extension
-    const contentTypes = {
-      'jpg': 'image/jpeg',
-      'jpeg': 'image/jpeg',
-      'png': 'image/png',
-      'gif': 'image/gif',
-      'webp': 'image/webp',
-      'svg': 'image/svg+xml',
-      'bmp': 'image/bmp',
-      'ico': 'image/x-icon'
-    };
-
-    const contentType = contentTypes[ext] || 'application/octet-stream';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
     res.setHeader('X-Content-Type-Options', 'nosniff'); // Prevent MIME sniffing
