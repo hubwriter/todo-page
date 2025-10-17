@@ -971,6 +971,19 @@ onUnmounted(() => {
   white-space: pre-wrap;
 }
 
+.task-text a {
+  color: #0066cc !important;
+  text-decoration: underline !important;
+}
+
+.task-text a:visited {
+  color: #0066cc !important;
+}
+
+.task-text a:hover {
+  color: #0052a3 !important;
+}
+
 .task-text img {
   max-width: 100%;
   height: auto;
@@ -1115,12 +1128,16 @@ onUnmounted(() => {
 }
 
 .notes-content a {
-  color: #646cff;
-  text-decoration: none;
+  color: #0066cc !important;
+  text-decoration: underline !important;
+}
+
+.notes-content a:visited {
+  color: #0066cc !important;
 }
 
 .notes-content a:hover {
-  text-decoration: underline;
+  color: #0052a3 !important;
 }
 
 /* Context Menu Backdrop */

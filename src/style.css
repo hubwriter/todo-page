@@ -43,6 +43,19 @@ h2 {
   margin-bottom: 0.4rem;
 }
 
+a {
+  color: #0066cc;
+  text-decoration: underline;
+}
+
+a:visited {
+  color: #0066cc;
+}
+
+a:hover {
+  color: #0052a3;
+}
+
 button {
   border-radius: 8px;
   border: 1px solid transparent;
