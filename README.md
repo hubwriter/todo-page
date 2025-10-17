@@ -6,13 +6,16 @@ A Vue 3 + Vite web application for managing to-do lists with markdown file synch
 
 - ✅ **Markdown File Integration**: Read and write tasks from/to a markdown file
 - ✅ **Three Task Categories**: Priority, Other, and Done
-- ✅ **Add Tasks**: Quick input to add tasks to Priority list
-- ✅ **Drag and Drop**: Reorder tasks in Priority and Other lists
+- ✅ **Quick Add**: Add tasks to Priority list with keyboard shortcuts (Cmd+Enter to submit)
+- ✅ **Context Menu**: Double-click any task to Edit, Move, or Delete
+- ✅ **Smart Editing**: Edit tasks in-place and they return to their original position
+- ✅ **Drag and Drop**: Reorder tasks within Priority and Other lists
 - ✅ **Complete Tasks**: Check items to move them to Done with date stamps
-- ✅ **Move to Priority**: Uncheck items in Other to move them to Priority
+- ✅ **Move Between Lists**: Easily move tasks between Priority and Other
 - ✅ **Live Sync**: External changes to the markdown file are automatically reflected in the app
 - ✅ **Markdown Editor**: Built-in editor to directly edit the markdown content
-- ✅ **Accessible**: Keyboard navigation and screen reader support
+- ✅ **Markdown Support**: Tasks can include links, formatting, and multi-line content
+- ✅ **Accessible**: Keyboard navigation, ESC to dismiss menus, screen reader support
 - ✅ **Responsive**: Works on desktop and mobile devices
 
 ## Getting Started
@@ -89,6 +92,8 @@ This starts a single integrated server on http://localhost:3000 that includes:
 
 Open http://localhost:3000 in your browser.
 
+**Note**: The app now uses a single server on port 3000 (previously used two separate servers on ports 3001 and 5173).
+
 ### Building for Production
 
 ```bash
@@ -128,9 +133,34 @@ The app will be available at http://localhost:3000 after login.
 ### Adding Tasks
 
 1. Type a task in the input field at the top
-2. Click "Add" or press Enter
+2. Click "Add" or press **Cmd+Enter** (Mac) / **Ctrl+Enter** (Windows/Linux)
 3. The task appears at the top of the Priority list
 4. Changes are automatically saved to the markdown file
+
+**Tip**: You can use markdown formatting in tasks, including links and multi-line content!
+
+### Context Menu (Double-Click)
+
+Double-click any task to open a quick-action menu:
+
+**Priority/Other Tasks:**
+- ✏️ **Edit** - Edit the task in the input field (returns to original position when saved)
+- ⬇️/⬆️ **Move to "Other"/"Priority"** - Move between lists (with automatic scrolling)
+- 🗑️ **Delete** - Remove the task
+
+**Done Tasks:**
+- 🗑️ **Delete** - Remove the task
+
+**Dismiss the menu**: Click anywhere outside the menu or press **ESC**
+
+### Editing Tasks
+
+1. Double-click a task and select "Edit"
+2. The task text appears in the input field at the top
+3. Make your changes
+4. Click "Save" or press **Cmd+Enter**
+5. The task returns to its original position in the list
+6. Click "Cancel" to discard changes and restore the original task
 
 ### Reordering Tasks
 
@@ -144,11 +174,16 @@ The app will be available at http://localhost:3000 after login.
 2. The task moves to the top of Done with today's date
 3. Changes are automatically saved
 
-### Moving Tasks to Priority
+### Moving Tasks Between Lists
 
+**Using the context menu:**
+1. Double-click a task
+2. Select "Move to "Other"" or "Move to "Priority""
+3. The browser scrolls to show the task in its new location
+
+**Using checkboxes (Other → Priority only):**
 1. Check the checkbox next to a task in Other
 2. The task moves to the top of Priority (without a date)
-3. Changes are automatically saved
 
 ### Editing Markdown Directly
 

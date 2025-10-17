@@ -1,5 +1,5 @@
 <template>
-  <div class="todo-app">
+  <div class="todo-app" @click="closeContextMenu">
     <h1>To do</h1>
 
     <div class="tabs" role="tablist">
@@ -36,12 +36,28 @@
       <div class="add-task">
         <textarea
           v-model="newTask"
-          placeholder="Add new task to Priority... (Cmd+Enter to submit)"
-          aria-label="New task"
+          :placeholder="editingTask.isEditing ? 'Editing task... (Cmd+Enter to save to original position)' : 'Add new task to Priority... (Cmd+Enter to submit)'"
+          :aria-label="editingTask.isEditing ? 'Edit task' : 'New task'"
           rows="3"
           @keydown="handleKeyDown"
         ></textarea>
-        <button @click="addTask" aria-label="Add task" class="btn-primary">Add</button>
+        <div class="button-group">
+          <button
+            @click="addTask"
+            :aria-label="editingTask.isEditing ? 'Save edited task' : 'Add task'"
+            class="btn-primary"
+            :disabled="!newTask.trim()"
+          >
+            {{ editingTask.isEditing ? 'Save' : 'Add' }}
+          </button>
+          <button
+            @click="cancelEdit"
+            aria-label="Cancel editing"
+            class="btn-secondary"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
 
       <div class="error" v-if="error" role="alert">{{ error }}</div>
@@ -59,6 +75,7 @@
               :key="`priority-${task}-${index}`"
               :draggable="true"
               @dragstart="onDragStart($event, 'Priority', index)"
+              @dblclick="showContextMenu($event, 'Priority', index)"
               class="task-item"
             >
               <input
@@ -90,6 +107,7 @@
               :key="`other-${task}-${index}`"
               :draggable="true"
               @dragstart="onDragStart($event, 'Other', index)"
+              @dblclick="showContextMenu($event, 'Other', index)"
               class="task-item"
             >
               <input
@@ -121,6 +139,7 @@
               :key="`done-${task}-${index}`"
               :draggable="true"
               @dragstart="onDragStart($event, 'Done', index)"
+              @dblclick="showContextMenu($event, 'Done', index)"
               class="task-item done"
             >
               <input
@@ -139,6 +158,60 @@
             </li>
           </ul>
         </section>
+      </div>
+
+      <!-- Context Menu Backdrop (invisible overlay to capture clicks outside menu) -->
+      <div
+        v-if="contextMenu.show"
+        class="context-menu-backdrop"
+        @click="closeContextMenu"
+      ></div>
+
+      <!-- Context Menu -->
+      <div
+        v-if="contextMenu.show"
+        class="context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+        @click.stop
+      >
+        <button
+          v-if="contextMenu.listType !== 'Done'"
+          @click="editTask"
+          class="context-menu-item"
+          title="Edit this task"
+        >
+          <span class="icon">✏️</span>
+          <span>Edit</span>
+        </button>
+
+        <button
+          v-if="contextMenu.listType === 'Priority'"
+          @click="moveToOther"
+          class="context-menu-item"
+          title="Move to Other list"
+        >
+          <span class="icon">⬇️</span>
+          <span>Move to "Other"</span>
+        </button>
+
+        <button
+          v-if="contextMenu.listType === 'Other'"
+          @click="moveToPriority"
+          class="context-menu-item"
+          title="Move to Priority list"
+        >
+          <span class="icon">⬆️</span>
+          <span>Move to "Priority"</span>
+        </button>
+
+        <button
+          @click="deleteTask"
+          class="context-menu-item"
+          title="Delete this task"
+        >
+          <span class="icon">🗑️</span>
+          <span>Delete</span>
+        </button>
       </div>
     </div>
 
@@ -209,6 +282,24 @@ const error = ref('');
 const draggedItem = ref(null);
 let eventSource = null;
 let autoSaveTimer = null;
+
+// Context menu state
+const contextMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  listType: '',
+  taskIndex: -1,
+  taskText: ''
+});
+
+// Track original position of edited task
+const editingTask = ref({
+  isEditing: false,
+  originalList: '',
+  originalIndex: -1,
+  originalText: ''
+});
 
 // Transform local file paths to API URLs
 function transformImagePaths(text) {
@@ -383,12 +474,70 @@ async function saveTasks() {
   }
 }
 
-// Add a new task to Priority
+// Cancel editing and restore task to original position, or just clear textarea
+async function cancelEdit() {
+  if (editingTask.value.isEditing) {
+    // We're in edit mode - restore the original task
+    const { originalList, originalIndex, originalText } = editingTask.value;
+
+    if (originalText) {
+      // Restore the original task (unchanged)
+      if (originalList === 'Priority') {
+        priorityTasks.value.splice(originalIndex, 0, originalText);
+      } else if (originalList === 'Other') {
+        otherTasks.value.splice(originalIndex, 0, originalText);
+      }
+
+      await saveTasks();
+      scrollToTask(originalList, originalIndex);
+    }
+
+    // Reset editing state
+    editingTask.value = {
+      isEditing: false,
+      originalList: '',
+      originalIndex: -1
+    };
+  }
+
+  // Always clear the textarea
+  newTask.value = '';
+}
+
+// Add a new task to Priority (or restore to original position if editing)
 async function addTask() {
   if (newTask.value.trim()) {
-    priorityTasks.value.unshift(newTask.value.trim());
-    newTask.value = '';
-    await saveTasks();
+    const taskText = newTask.value.trim();
+
+    // Check if we're editing an existing task
+    if (editingTask.value.isEditing) {
+      const { originalList, originalIndex } = editingTask.value;
+
+      // Restore to original position
+      if (originalList === 'Priority') {
+        priorityTasks.value.splice(originalIndex, 0, taskText);
+      } else if (originalList === 'Other') {
+        otherTasks.value.splice(originalIndex, 0, taskText);
+      }
+
+      // Reset editing state
+      editingTask.value = {
+        isEditing: false,
+        originalList: '',
+        originalIndex: -1
+      };
+
+      newTask.value = '';
+      await saveTasks();
+
+      // Scroll to the restored task
+      scrollToTask(originalList, originalIndex);
+    } else {
+      // Normal add operation - add to top of Priority
+      priorityTasks.value.unshift(taskText);
+      newTask.value = '';
+      await saveTasks();
+    }
   }
 }
 
@@ -504,6 +653,131 @@ function onDrop(event, targetSection) {
   saveTasks();
 }
 
+// Context menu handlers
+function showContextMenu(event, listType, index) {
+  // Don't show menu if clicking on a link
+  if (event.target.tagName === 'A') {
+    return;
+  }
+
+  event.preventDefault();
+
+  let task;
+  if (listType === 'Priority') {
+    task = priorityTasks.value[index];
+  } else if (listType === 'Other') {
+    task = otherTasks.value[index];
+  } else if (listType === 'Done') {
+    task = doneTasks.value[index];
+  }
+
+  contextMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    listType,
+    taskIndex: index,
+    taskText: task
+  };
+}
+
+function closeContextMenu() {
+  contextMenu.value.show = false;
+}
+
+function editTask() {
+  const { listType, taskIndex } = contextMenu.value;
+  let task;
+
+  if (listType === 'Priority') {
+    task = priorityTasks.value.splice(taskIndex, 1)[0];
+  } else if (listType === 'Other') {
+    task = otherTasks.value.splice(taskIndex, 1)[0];
+  }
+
+  // Store the original position and list for restoration
+  editingTask.value = {
+    isEditing: true,
+    originalList: listType,
+    originalIndex: taskIndex,
+    originalText: task
+  };
+
+  newTask.value = task;
+  closeContextMenu();
+  saveTasks();
+
+  // Focus the textarea
+  setTimeout(() => {
+    document.querySelector('textarea')?.focus();
+  }, 100);
+}
+
+async function deleteTask() {
+  const { listType, taskIndex } = contextMenu.value;
+
+  if (listType === 'Priority') {
+    priorityTasks.value.splice(taskIndex, 1);
+  } else if (listType === 'Other') {
+    otherTasks.value.splice(taskIndex, 1);
+  } else if (listType === 'Done') {
+    doneTasks.value.splice(taskIndex, 1);
+  }
+
+  closeContextMenu();
+  await saveTasks();
+}
+
+// Scroll to a specific task in a list
+function scrollToTask(listType, index) {
+  setTimeout(() => {
+    let selector;
+    if (listType === 'Priority') {
+      selector = `#priority-${index}`;
+    } else if (listType === 'Other') {
+      selector = `#other-${index}`;
+    } else if (listType === 'Done') {
+      selector = `#done-${index}`;
+    }
+
+    if (selector) {
+      const element = document.querySelector(selector);
+      if (element) {
+        // Get the parent li element
+        const taskItem = element.closest('.task-item');
+        if (taskItem) {
+          taskItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Briefly highlight the task
+          taskItem.style.backgroundColor = '#fff3cd';
+          setTimeout(() => {
+            taskItem.style.backgroundColor = '';
+          }, 1500);
+        }
+      }
+    }
+  }, 100);
+}
+
+async function moveToOther() {
+  const { taskIndex } = contextMenu.value;
+  const task = priorityTasks.value.splice(taskIndex, 1)[0];
+  otherTasks.value.unshift(task);
+  closeContextMenu();
+  await saveTasks();
+  // Scroll to show the task in its new location (top of Other list)
+  scrollToTask('Other', 0);
+}
+
+async function moveToPriority() {
+  const { taskIndex } = contextMenu.value;
+  const task = otherTasks.value.splice(taskIndex, 1)[0];
+  priorityTasks.value.unshift(task);
+  closeContextMenu();
+  await saveTasks();
+  // Scroll to show the task in its new location (top of Priority list)
+  scrollToTask('Priority', 0);
+}
+
 // Save markdown content from editor
 async function saveMarkdown() {
   try {
@@ -563,15 +837,26 @@ watch(markdownContent, (newValue, oldValue) => {
   }
 });
 
+// Handle ESC key to close context menu
+function handleEscKey(event) {
+  if (event.key === 'Escape' && contextMenu.value.show) {
+    closeContextMenu();
+  }
+}
+
 onMounted(() => {
   loadTasks();
   setupFileWatcher();
+  // Add ESC key listener for context menu
+  window.addEventListener('keydown', handleEscKey);
 });
 
 onUnmounted(() => {
   if (eventSource) {
     eventSource.close();
   }
+  // Remove ESC key listener
+  window.removeEventListener('keydown', handleEscKey);
 });
 </script>
 
@@ -621,6 +906,7 @@ onUnmounted(() => {
   gap: 0.5rem;
   margin-bottom: 1.5rem;
   align-items: flex-start;
+  transition: all 0.3s ease;
 }
 
 .add-task textarea {
@@ -731,15 +1017,50 @@ onUnmounted(() => {
   align-self: flex-start;
 }
 
+.button-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .btn-primary {
   background-color: #22c55e !important;
   color: white !important;
   border: 1px solid #16a34a !important;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background-color: #16a34a !important;
   border-color: #15803d !important;
+}
+
+.btn-primary:disabled {
+  background-color: #9ca3af !important;
+  border-color: #6b7280 !important;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-secondary {
+  background-color: #6c757d !important;
+  color: white !important;
+  border: 1px solid #5a6268 !important;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #5a6268 !important;
+  border-color: #545b62 !important;
+}
+
+.btn-secondary:disabled {
+  background-color: #9ca3af !important;
+  border-color: #6b7280 !important;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .notes-content {
@@ -800,5 +1121,57 @@ onUnmounted(() => {
 
 .notes-content a:hover {
   text-decoration: underline;
+}
+
+/* Context Menu Backdrop */
+.context-menu-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  background: transparent;
+}
+
+/* Context Menu */
+.context-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  z-index: 1000;
+  min-width: 180px;
+}
+
+.context-menu-item {
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #213547;
+  transition: background-color 0.1s;
+}
+
+.context-menu-item:hover {
+  background-color: #f6f8fa;
+}
+
+.context-menu-item .icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+}
+
+.task-item {
+  user-select: none;
 }
 </style>
