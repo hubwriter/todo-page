@@ -197,7 +197,7 @@ marked.setOptions({
   sanitize: false // Allow HTML tags like <img>
 });
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = '/api';
 
 const activeTab = ref('tasks');
 const newTask = ref('');
@@ -219,7 +219,7 @@ function transformImagePaths(text) {
     /<img\s+([^>]*?)src=["']file:\/\/([^"']+)["']([^>]*?)>/gi,
     (match, before, path, after) => {
       const encodedPath = encodeURIComponent(path);
-      return `<img ${before}src="http://localhost:3001/api/image?path=${encodedPath}"${after}>`;
+      return `<img ${before}src="/api/image?path=${encodedPath}"${after}>`;
     }
   );
 
@@ -228,7 +228,7 @@ function transformImagePaths(text) {
     /<img\s+([^>]*?)src=["'](\/.+?)["']([^>]*?)>/gi,
     (match, before, path, after) => {
       const encodedPath = encodeURIComponent(path);
-      return `<img ${before}src="http://localhost:3001/api/image?path=${encodedPath}"${after}>`;
+      return `<img ${before}src="/api/image?path=${encodedPath}"${after}>`;
     }
   );
 
@@ -237,7 +237,7 @@ function transformImagePaths(text) {
     /!\[([^\]]*)\]\((\/.+?)\)/g,
     (match, alt, path) => {
       const encodedPath = encodeURIComponent(path);
-      return `![${alt}](http://localhost:3001/api/image?path=${encodedPath})`;
+      return `![${alt}](/api/image?path=${encodedPath})`;
     }
   );
 

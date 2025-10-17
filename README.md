@@ -82,19 +82,46 @@ Start the development server:
 npm run dev
 ```
 
-This starts:
-- Backend server on http://localhost:3001
-- Vite dev server on http://localhost:5173
+This starts a single integrated server on http://localhost:3000 that includes:
+- Express API backend for file operations
+- Vite middleware for hot module replacement (HMR)
+- Automatic file watching and live updates
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:3000 in your browser.
 
 ### Building for Production
 
 ```bash
 npm run build
+npm start
 ```
 
-The built files will be in the `dist` directory.
+The built files will be in the `dist` directory and served by the Express server.
+
+### Auto-start on Login (macOS)
+
+To automatically start the app when you log in:
+
+1. A LaunchAgent plist file is provided at `/Users/alistair/Library/LaunchAgents/com.user.todo-app.plist`
+
+2. Load the LaunchAgent:
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.todo-app.plist
+```
+
+3. To stop the auto-start service:
+```bash
+launchctl bootout gui/$(id -u)/com.user.todo-app
+```
+
+4. To check if it's running:
+```bash
+launchctl list | grep todo-app
+```
+
+The app will be available at http://localhost:3000 after login.
+
+**Note**: Update the paths in the plist file if your Node.js installation or project location differs.
 
 ## Usage
 
@@ -125,9 +152,9 @@ The built files will be in the `dist` directory.
 
 ### Editing Markdown Directly
 
-1. Use the Markdown Editor section at the bottom
-2. Make your changes
-3. Click "Save Markdown" or tab away from the editor
+1. Switch to the Markdown tab
+2. Make your changes in the editor
+3. Changes are automatically saved after you stop typing (1 second delay)
 4. The task lists update to reflect your changes
 
 ### External Edits
@@ -160,10 +187,11 @@ The markdown file follows this structure:
 ## Technical Stack
 
 - **Frontend**: Vue 3 with Composition API
-- **Build Tool**: Vite
-- **Backend**: Express.js
+- **Build Tool**: Vite (integrated via middleware in development)
+- **Backend**: Express.js (single server for both API and frontend)
 - **File Watching**: Chokidar
 - **Real-time Updates**: Server-Sent Events (SSE)
+- **Markdown Parsing**: Marked.js
 
 ## Project Structure
 

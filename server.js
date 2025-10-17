@@ -5,12 +5,14 @@ import { watch } from 'chokidar';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
+import { createServer as createViteServer } from 'vite';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3000;
+const isDevelopment = process.env.NODE_ENV !== 'production';
 
 // Middleware
 app.use(cors());
@@ -178,7 +180,41 @@ watcher.on('change', () => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  ensureFileExists();
+// Start server with Vite integration in development
+async function startServer() {
+  if (isDevelopment) {
+    // In development, use Vite's middleware for HMR
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa'
+    });
+
+    // Use vite's connect instance as middleware
+    app.use(vite.middlewares);
+
+    console.log('Development mode: Vite middleware enabled');
+  } else {
+    // In production, serve the built files
+    app.use(express.static(join(__dirname, 'dist')));
+
+    // SPA fallback - serve index.html for all non-API routes
+    app.get('*', (req, res) => {
+      res.sendFile(join(__dirname, 'dist', 'index.html'));
+    });
+
+    console.log('Production mode: Serving static files from dist/');
+  }
+
+  await ensureFileExists();
+
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Todo file: ${TODO_FILE_PATH}`);
+    console.log(`Mode: ${isDevelopment ? 'development' : 'production'}`);
+  });
+}
+
+startServer().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });

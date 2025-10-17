@@ -1,5 +1,13 @@
 # Implementation Guide
 
+## Architecture
+
+The application uses a **single integrated server** architecture:
+- Express.js serves both the API endpoints and the frontend
+- In development: Vite middleware provides hot module replacement (HMR)
+- In production: Express serves pre-built static files from `dist/`
+- Single port (3000) for all traffic - no CORS issues
+
 ## Quick Start
 
 1. **Install dependencies:**
@@ -13,8 +21,8 @@
    ```
 
 3. **Access the app:**
-   - Frontend: http://localhost:5173
-   - Backend: http://localhost:3001
+   - Application: http://localhost:3000
+   - API endpoints available at: http://localhost:3000/api/*
 
 ## Configuration
 
