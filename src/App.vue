@@ -297,7 +297,8 @@ const contextMenu = ref({
 const editingTask = ref({
   isEditing: false,
   originalList: '',
-  originalIndex: -1
+  originalIndex: -1,
+  originalText: ''
 });
 
 // Transform local file paths to API URLs
