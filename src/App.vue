@@ -243,9 +243,8 @@ async function handleAddOrSave() {
   if (editState.value.isEditing) {
     // Editing mode: restore to original position
     const { originalList, originalIndex } = editState.value;
-    await moveTaskBetweenSections(originalList, originalList, -1, originalIndex);
 
-    // Insert the edited task
+    // Insert the edited task at its original position
     const lists = getTaskLists();
     const targetList = getTaskList(originalList, lists);
     targetList.splice(originalIndex, 0, taskText);
