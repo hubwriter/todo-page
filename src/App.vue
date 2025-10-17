@@ -478,15 +478,14 @@ async function saveTasks() {
 async function cancelEdit() {
   if (editingTask.value.isEditing) {
     // We're in edit mode - restore the original task
-    const { originalList, originalIndex } = editingTask.value;
-    const taskText = newTask.value.trim();
+    const { originalList, originalIndex, originalText } = editingTask.value;
 
-    if (taskText) {
+    if (originalText) {
       // Restore the original task (unchanged)
       if (originalList === 'Priority') {
-        priorityTasks.value.splice(originalIndex, 0, taskText);
+        priorityTasks.value.splice(originalIndex, 0, originalText);
       } else if (originalList === 'Other') {
-        otherTasks.value.splice(originalIndex, 0, taskText);
+        otherTasks.value.splice(originalIndex, 0, originalText);
       }
 
       await saveTasks();
@@ -700,7 +699,8 @@ function editTask() {
   editingTask.value = {
     isEditing: true,
     originalList: listType,
-    originalIndex: taskIndex
+    originalIndex: taskIndex,
+    originalText: task
   };
 
   newTask.value = task;
