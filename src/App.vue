@@ -2,6 +2,7 @@
   <div class="todo-app" @click="closeContextMenu">
     <h1>To do</h1>
 
+    <!-- Tabs -->
     <div class="tabs" role="tablist">
       <button
         @click="activeTab = 'tasks'"
@@ -32,26 +33,28 @@
       </button>
     </div>
 
+    <!-- Tasks Tab -->
     <div v-show="activeTab === 'tasks'" id="tasks-panel" role="tabpanel">
+      <!-- Add/Edit Task Form -->
       <div class="add-task">
         <textarea
           v-model="newTask"
-          :placeholder="editingTask.isEditing ? 'Editing task... (Cmd+Enter to save to original position)' : 'Add new task to Priority... (Cmd+Enter to submit)'"
-          :aria-label="editingTask.isEditing ? 'Edit task' : 'New task'"
+          :placeholder="taskInputPlaceholder"
+          :aria-label="editState.isEditing ? 'Edit task' : 'New task'"
           rows="3"
           @keydown="handleKeyDown"
         ></textarea>
         <div class="button-group">
           <button
-            @click="addTask"
-            :aria-label="editingTask.isEditing ? 'Save edited task' : 'Add task'"
+            @click="handleAddOrSave"
+            :aria-label="editState.isEditing ? 'Save edited task' : 'Add task'"
             class="btn-primary"
             :disabled="!newTask.trim()"
           >
-            {{ editingTask.isEditing ? 'Save' : 'Add' }}
+            {{ editState.isEditing ? 'Save' : 'Add' }}
           </button>
           <button
-            @click="cancelEdit"
+            @click="handleCancel"
             aria-label="Cancel editing"
             class="btn-secondary"
           >
@@ -62,159 +65,51 @@
 
       <div class="error" v-if="error" role="alert">{{ error }}</div>
 
+      <!-- Task Lists -->
       <div class="lists-container">
-        <section class="task-list" aria-labelledby="priority-heading">
-          <h2 id="priority-heading">Priority</h2>
-          <ul
-            @drop="onDrop($event, 'Priority')"
-            @dragover.prevent
-            @dragenter.prevent
-          >
-            <li
-              v-for="(task, index) in priorityTasks"
-              :key="`priority-${task}-${index}`"
-              :draggable="true"
-              @dragstart="onDragStart($event, 'Priority', index)"
-              @dblclick="showContextMenu($event, 'Priority', index)"
-              class="task-item"
-            >
-              <input
-                type="checkbox"
-                :id="`priority-${index}`"
-                :checked="false"
-                @change="completeTask('Priority', index)"
-                :aria-label="`Mark ${task} as complete`"
-              />
-              <div class="task-text">
-                <span class="task-first-line" v-html="renderMarkdown(task.split('\n')[0])"></span>
-                <span v-if="task.includes('\n')" class="task-continuation">
-                  <span v-for="(line, lineIndex) in task.split('\n').slice(1)" :key="lineIndex" class="task-indent" v-html="renderMarkdown(line)"></span>
-                </span>
-              </div>
-            </li>
-          </ul>
-        </section>
+        <TaskList
+          list-type="Priority"
+          :tasks="priorityTasks"
+          @dragstart="onDragStart"
+          @drop="onDrop"
+          @show-context-menu="handleShowContextMenu"
+          @checkbox-change="handleCheckboxChange"
+        />
 
-        <section class="task-list" aria-labelledby="other-heading">
-          <h2 id="other-heading">Other</h2>
-          <ul
-            @drop="onDrop($event, 'Other')"
-            @dragover.prevent
-            @dragenter.prevent
-          >
-            <li
-              v-for="(task, index) in otherTasks"
-              :key="`other-${task}-${index}`"
-              :draggable="true"
-              @dragstart="onDragStart($event, 'Other', index)"
-              @dblclick="showContextMenu($event, 'Other', index)"
-              class="task-item"
-            >
-              <input
-                type="checkbox"
-                :id="`other-${index}`"
-                :checked="false"
-                @change="handleOtherTaskCheck('Other', index)"
-                :aria-label="`Process ${task}`"
-              />
-              <div class="task-text">
-                <span class="task-first-line" v-html="renderMarkdown(task.split('\n')[0])"></span>
-                <span v-if="task.includes('\n')" class="task-continuation">
-                  <span v-for="(line, lineIndex) in task.split('\n').slice(1)" :key="lineIndex" class="task-indent" v-html="renderMarkdown(line)"></span>
-                </span>
-              </div>
-            </li>
-          </ul>
-        </section>
+        <TaskList
+          list-type="Other"
+          :tasks="otherTasks"
+          @dragstart="onDragStart"
+          @drop="onDrop"
+          @show-context-menu="handleShowContextMenu"
+          @checkbox-change="handleCheckboxChange"
+        />
 
-        <section class="task-list" aria-labelledby="done-heading">
-          <h2 id="done-heading">Done</h2>
-          <ul
-            @drop="onDrop($event, 'Done')"
-            @dragover.prevent
-            @dragenter.prevent
-          >
-            <li
-              v-for="(task, index) in doneTasks"
-              :key="`done-${task}-${index}`"
-              :draggable="true"
-              @dragstart="onDragStart($event, 'Done', index)"
-              @dblclick="showContextMenu($event, 'Done', index)"
-              class="task-item done"
-            >
-              <input
-                type="checkbox"
-                :id="`done-${index}`"
-                :checked="true"
-                @change="uncompleteTask('Done', index)"
-                :aria-label="`Uncomplete: ${task}`"
-              />
-              <div class="task-text">
-                <span class="task-first-line" v-html="renderMarkdown(task.split('\n')[0])"></span>
-                <span v-if="task.includes('\n')" class="task-continuation">
-                  <span v-for="(line, lineIndex) in task.split('\n').slice(1)" :key="lineIndex" class="task-indent" v-html="renderMarkdown(line)"></span>
-                </span>
-              </div>
-            </li>
-          </ul>
-        </section>
+        <TaskList
+          list-type="Done"
+          :tasks="doneTasks"
+          @dragstart="onDragStart"
+          @drop="onDrop"
+          @show-context-menu="handleShowContextMenu"
+          @checkbox-change="handleCheckboxChange"
+        />
       </div>
-
-      <!-- Context Menu Backdrop (invisible overlay to capture clicks outside menu) -->
-      <div
-        v-if="contextMenu.show"
-        class="context-menu-backdrop"
-        @click="closeContextMenu"
-      ></div>
 
       <!-- Context Menu -->
-      <div
-        v-if="contextMenu.show"
-        class="context-menu"
-        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-        @click.stop
-      >
-        <button
-          v-if="contextMenu.listType !== 'Done'"
-          @click="editTask"
-          class="context-menu-item"
-          title="Edit this task"
-        >
-          <span class="icon">✏️</span>
-          <span>Edit</span>
-        </button>
-
-        <button
-          v-if="contextMenu.listType === 'Priority'"
-          @click="moveToOther"
-          class="context-menu-item"
-          title="Move to Other list"
-        >
-          <span class="icon">⬇️</span>
-          <span>Move to "Other"</span>
-        </button>
-
-        <button
-          v-if="contextMenu.listType === 'Other'"
-          @click="moveToPriority"
-          class="context-menu-item"
-          title="Move to Priority list"
-        >
-          <span class="icon">⬆️</span>
-          <span>Move to "Priority"</span>
-        </button>
-
-        <button
-          @click="deleteTask"
-          class="context-menu-item"
-          title="Delete this task"
-        >
-          <span class="icon">🗑️</span>
-          <span>Delete</span>
-        </button>
-      </div>
+      <ContextMenu
+        :show="contextMenu.show"
+        :x="contextMenu.x"
+        :y="contextMenu.y"
+        :list-type="contextMenu.listType"
+        @close="closeContextMenu"
+        @edit="handleEditFromMenu"
+        @move-to-other="handleMoveToOther"
+        @move-to-priority="handleMoveToPriority"
+        @delete="handleDelete"
+      />
     </div>
 
+    <!-- Markdown Editor Tab -->
     <div v-show="activeTab === 'editor'" id="editor-panel" role="tabpanel">
       <div class="markdown-editor">
         <h2>Markdown Editor</h2>
@@ -225,6 +120,7 @@
       </div>
     </div>
 
+    <!-- Notes Tab -->
     <div v-show="activeTab === 'notes'" id="notes-panel" role="tabpanel">
       <div class="notes-content">
         <h2>About</h2>
@@ -249,9 +145,8 @@
 
         <p><strong>Deployment:</strong></p>
         <ul>
-          <li>Backend server runs on port 3001 (Express/Node.js)</li>
-          <li>Frontend dev server runs on port 5173 (Vite)</li>
-          <li>Auto-starts on login via macOS LaunchAgents (<code>com.user.todo-backend</code>, <code>com.user.todo-frontend</code>)</li>
+          <li>Server runs on port 3000 (integrated Express + Vite)</li>
+          <li>Auto-starts on login via macOS LaunchAgent (<code>com.user.todo-app</code>)</li>
           <li>Configuration via <code>config.json</code> in project root</li>
         </ul>
       </div>
@@ -260,547 +155,214 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { marked } from 'marked';
-import DOMPurify from 'dompurify';
+import TaskList from './components/TaskList.vue';
+import ContextMenu from './components/ContextMenu.vue';
+import { useTasks } from './composables/useTasks.js';
+import { useContextMenu } from './composables/useContextMenu.js';
+import { useTaskEditor } from './composables/useTaskEditor.js';
+import { setupFileWatcher, saveTodoContent } from './api/todoApi.js';
+import { generateMarkdownFromTasks, removeDateFromTask } from './utils/markdownUtils.js';
+import { calculateDropPosition, getTaskList } from './utils/taskUtils.js';
+import { AUTO_SAVE_DELAY_MS } from './constants.js';
 
-// Configure marked for inline rendering with HTML support
+// Configure marked for inline rendering
 marked.setOptions({
   breaks: true,
   gfm: true
 });
 
-const API_BASE = '/api';
-
+// State
 const activeTab = ref('tasks');
-const newTask = ref('');
 const markdownContent = ref('');
-const priorityTasks = ref([]);
-const otherTasks = ref([]);
-const doneTasks = ref([]);
-const error = ref('');
 const draggedItem = ref(null);
+const isSavingLocally = ref(false); // Flag to prevent file watcher reload during our saves
 let eventSource = null;
 let autoSaveTimer = null;
 
-// Context menu state
-const contextMenu = ref({
-  show: false,
-  x: 0,
-  y: 0,
-  listType: '',
-  taskIndex: -1,
-  taskText: ''
+// Composables
+const {
+  priorityTasks,
+  otherTasks,
+  doneTasks,
+  error,
+  loadTasks,
+  saveTasks,
+  completeTask,
+  uncompleteTask,
+  deleteTask,
+  moveTaskBetweenSections,
+  getTaskLists
+} = useTasks();
+
+const {
+  contextMenu,
+  showContextMenu,
+  closeContextMenu,
+  handleEscKey,
+  getMenuContext
+} = useContextMenu();
+
+const {
+  newTask,
+  editingTask,
+  startEdit,
+  cancelEdit,
+  getEditState,
+  scrollToTask
+} = useTaskEditor();
+
+// Computed
+const editState = computed(() => getEditState());
+
+const taskInputPlaceholder = computed(() => {
+  return editState.value.isEditing
+    ? 'Editing task... (Cmd+Enter to save to original position)'
+    : 'Add new task to Priority... (Cmd+Enter to submit)';
 });
 
-// Track original position of edited task
-const editingTask = ref({
-  isEditing: false,
-  originalList: '',
-  originalIndex: -1,
-  originalText: ''
-});
-
-// Transform local file paths to API URLs
-function transformImagePaths(text) {
-  if (!text) return text;
-
-  // Replace file:// URLs in img tags
-  text = text.replace(
-    /<img\s+([^>]*?)src=["']file:\/\/([^"']+)["']([^>]*?)>/gi,
-    (match, before, path, after) => {
-      const encodedPath = encodeURIComponent(path);
-      return `<img ${before}src="/api/image?path=${encodedPath}"${after}>`;
-    }
-  );
-
-  // Replace absolute paths in img tags (starting with /)
-  text = text.replace(
-    /<img\s+([^>]*?)src=["'](\/.+?)["']([^>]*?)>/gi,
-    (match, before, path, after) => {
-      const encodedPath = encodeURIComponent(path);
-      return `<img ${before}src="/api/image?path=${encodedPath}"${after}>`;
-    }
-  );
-
-  // Replace markdown image syntax with local paths
-  text = text.replace(
-    /!\[([^\]]*)\]\((\/.+?)\)/g,
-    (match, alt, path) => {
-      const encodedPath = encodeURIComponent(path);
-      return `![${alt}](/api/image?path=${encodedPath})`;
-    }
-  );
-
-  return text;
-}
-
-// Render markdown with HTML support
-function renderMarkdown(text) {
-  if (!text) return '';
-  // Transform local image paths to API URLs first
-  text = transformImagePaths(text);
-  // Use marked.parseInline for inline rendering
-  const rawHtml = marked.parseInline(text, { async: false });
-  // Sanitize the output to prevent XSS attacks while allowing safe HTML
-  return DOMPurify.sanitize(rawHtml, {
-    ALLOWED_TAGS: ['a', 'img', 'strong', 'em', 'code', 'del', 'br'],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel'],
-    ALLOW_DATA_ATTR: false
-  });
-}
-
-// Parse markdown content into tasks
-function parseMarkdown(content) {
-  const lines = content.split('\n');
-  let currentSection = null;
-  const priority = [];
-  const other = [];
-  const done = [];
-  let currentTask = null;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed === '# Priority') {
-      currentSection = 'priority';
-      currentTask = null;
-    } else if (trimmed === '# Other') {
-      currentSection = 'other';
-      currentTask = null;
-    } else if (trimmed === '# Done') {
-      currentSection = 'done';
-      currentTask = null;
-    } else if (trimmed.startsWith('- [ ]') || trimmed.startsWith('- [x]')) {
-      // Start of a new task
-      const taskText = trimmed.substring(5).trim();
-      if (taskText) {
-        currentTask = taskText;
-        if (currentSection === 'priority') {
-          priority.push(currentTask);
-        } else if (currentSection === 'other') {
-          other.push(currentTask);
-        } else if (currentSection === 'done') {
-          done.push(currentTask);
-        }
-      }
-    } else if (trimmed && currentTask !== null && currentSection) {
-      // Continuation line (indented paragraph)
-      const updatedTask = currentTask + '\n' + trimmed;
-      if (currentSection === 'priority') {
-        priority[priority.length - 1] = updatedTask;
-      } else if (currentSection === 'other') {
-        other[other.length - 1] = updatedTask;
-      } else if (currentSection === 'done') {
-        done[done.length - 1] = updatedTask;
-      }
-      currentTask = updatedTask;
-    }
-  }
-
-  return { priority, other, done };
-}
-
-// Generate markdown from tasks
-function generateMarkdown() {
-  let content = '# Priority\n\n';
-  for (const task of priorityTasks.value) {
-    const lines = task.split('\n');
-    content += `- [ ] ${lines[0]}\n`;
-    // Add continuation lines with indentation
-    for (let i = 1; i < lines.length; i++) {
-      content += `  ${lines[i]}\n`;
-    }
-  }
-
-  content += '\n# Other\n\n';
-  for (const task of otherTasks.value) {
-    const lines = task.split('\n');
-    content += `- [ ] ${lines[0]}\n`;
-    for (let i = 1; i < lines.length; i++) {
-      content += `  ${lines[i]}\n`;
-    }
-  }
-
-  content += '\n# Done\n\n';
-  for (const task of doneTasks.value) {
-    const lines = task.split('\n');
-    content += `- [x] ${lines[0]}\n`;
-    for (let i = 1; i < lines.length; i++) {
-      content += `  ${lines[i]}\n`;
-    }
-  }
-
-  return content;
-}
-
-// Load tasks from the server
-async function loadTasks() {
+// Wrapper for saveTasks that prevents file watcher reload
+async function saveTasksWithoutReload() {
+  isSavingLocally.value = true;
   try {
-    error.value = '';
-    const response = await fetch(`${API_BASE}/todo`);
-    if (!response.ok) {
-      throw new Error('Failed to load tasks');
-    }
-    const data = await response.json();
-    markdownContent.value = data.content;
-
-    const parsed = parseMarkdown(data.content);
-    priorityTasks.value = parsed.priority;
-    otherTasks.value = parsed.other;
-    doneTasks.value = parsed.done;
-  } catch (err) {
-    error.value = `Error loading tasks: ${err.message}`;
-    console.error('Error loading tasks:', err);
+    await saveTasks();
+    // Wait a bit for the file watcher event to be processed and ignored
+    await new Promise(resolve => setTimeout(resolve, 500));
+  } finally {
+    isSavingLocally.value = false;
   }
 }
 
-// Save tasks to the server
-async function saveTasks() {
-  try {
-    error.value = '';
-    const content = generateMarkdown();
-    markdownContent.value = content;
+// Task Management
+async function handleAddOrSave() {
+  if (!newTask.value.trim()) return;
 
-    const response = await fetch(`${API_BASE}/todo`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ content }),
-    });
+  const taskText = newTask.value.trim();
 
-    if (!response.ok) {
-      throw new Error('Failed to save tasks');
-    }
-  } catch (err) {
-    error.value = `Error saving tasks: ${err.message}`;
-    console.error('Error saving tasks:', err);
+  if (editState.value.isEditing) {
+    // Editing mode: restore to original position
+    const { originalList, originalIndex } = editState.value;
+    await moveTaskBetweenSections(originalList, originalList, -1, originalIndex);
+
+    // Insert the edited task
+    const lists = getTaskLists();
+    const targetList = getTaskList(originalList, lists);
+    targetList.splice(originalIndex, 0, taskText);
+
+    await saveTasksWithoutReload();
+    scrollToTask(originalList, originalIndex);
+    cancelEdit();
+  } else {
+    // Normal add: add to top of Priority
+    priorityTasks.value.unshift(taskText);
+    newTask.value = '';
+    await saveTasksWithoutReload();
   }
 }
 
-// Cancel editing and restore task to original position, or just clear textarea
-async function cancelEdit() {
-  if (editingTask.value.isEditing) {
-    // We're in edit mode - restore the original task
-    const { originalList, originalIndex, originalText } = editingTask.value;
-
+async function handleCancel() {
+  if (editState.value.isEditing) {
+    // Restore original task
+    const { originalList, originalIndex, originalText } = editState.value;
     if (originalText) {
-      // Restore the original task (unchanged)
-      if (originalList === 'Priority') {
-        priorityTasks.value.splice(originalIndex, 0, originalText);
-      } else if (originalList === 'Other') {
-        otherTasks.value.splice(originalIndex, 0, originalText);
-      }
-
-      await saveTasks();
+      const lists = getTaskLists();
+      const targetList = getTaskList(originalList, lists);
+      targetList.splice(originalIndex, 0, originalText);
+      await saveTasksWithoutReload();
       scrollToTask(originalList, originalIndex);
     }
-
-    // Reset editing state
-    editingTask.value = {
-      isEditing: false,
-      originalList: '',
-      originalIndex: -1
-    };
   }
-
-  // Always clear the textarea
-  newTask.value = '';
+  cancelEdit();
 }
 
-// Add a new task to Priority (or restore to original position if editing)
-async function addTask() {
-  if (newTask.value.trim()) {
-    const taskText = newTask.value.trim();
-
-    // Check if we're editing an existing task
-    if (editingTask.value.isEditing) {
-      const { originalList, originalIndex } = editingTask.value;
-
-      // Restore to original position
-      if (originalList === 'Priority') {
-        priorityTasks.value.splice(originalIndex, 0, taskText);
-      } else if (originalList === 'Other') {
-        otherTasks.value.splice(originalIndex, 0, taskText);
-      }
-
-      // Reset editing state
-      editingTask.value = {
-        isEditing: false,
-        originalList: '',
-        originalIndex: -1
-      };
-
-      newTask.value = '';
-      await saveTasks();
-
-      // Scroll to the restored task
-      scrollToTask(originalList, originalIndex);
-    } else {
-      // Normal add operation - add to top of Priority
-      priorityTasks.value.unshift(taskText);
-      newTask.value = '';
-      await saveTasks();
-    }
-  }
-}
-
-// Handle keyboard shortcuts for adding tasks
 function handleKeyDown(event) {
   // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to submit
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
     event.preventDefault();
-    addTask();
+    handleAddOrSave();
   }
 }
 
-// Complete a task (move to Done with date)
-async function completeTask(section, index) {
-  let task;
-  if (section === 'Priority') {
-    task = priorityTasks.value.splice(index, 1)[0];
-  } else if (section === 'Other') {
-    task = otherTasks.value.splice(index, 1)[0];
+async function handleCheckboxChange(listType, index) {
+  if (listType === 'Done') {
+    await uncompleteTask(index);
+    // Scroll to show the task in its new position at the top of Priority list
+    scrollToTask('Priority', 0);
+  } else {
+    await completeTask(listType, index);
   }
-
-  const today = new Date().toISOString().split('T')[0];
-  doneTasks.value.unshift(`${today} - ${task}`);
-  await saveTasks();
 }
 
-// Handle checkbox for Other tasks (move to Done with date)
-async function handleOtherTaskCheck(section, index) {
-  const task = otherTasks.value.splice(index, 1)[0];
-  const today = new Date().toISOString().split('T')[0];
-  doneTasks.value.unshift(`${today} - ${task}`);
-  await saveTasks();
-}
-
-// Uncomplete a task (move from Done back to Priority)
-async function uncompleteTask(section, index) {
-  const task = doneTasks.value.splice(index, 1)[0];
-  // Remove date prefix (format: "YYYY-MM-DD - task text")
-  const cleanTask = task.replace(/^\d{4}-\d{2}-\d{2}\s*-\s*/, '');
-  priorityTasks.value.unshift(cleanTask);
-  await saveTasks();
-}
-
-// Drag and drop handlers
+// Drag and Drop
 function onDragStart(event, section, index) {
   draggedItem.value = { section, index };
   event.dataTransfer.effectAllowed = 'move';
 }
 
-function onDrop(event, targetSection) {
+async function onDrop(event, targetSection) {
   event.preventDefault();
-
-  if (!draggedItem.value) return;
+  if (!draggedItem.value || targetSection === 'Done') return;
 
   const { section: sourceSection, index: sourceIndex } = draggedItem.value;
-
-  // Don't allow dropping into Done section
-  if (targetSection === 'Done') {
-    draggedItem.value = null;
-    return;
-  }
-
-  // Get the task being dragged
-  let task;
-  if (sourceSection === 'Priority') {
-    task = priorityTasks.value[sourceIndex];
-  } else if (sourceSection === 'Other') {
-    task = otherTasks.value[sourceIndex];
-  } else if (sourceSection === 'Done') {
-    task = doneTasks.value[sourceIndex];
-    // Remove date prefix from Done tasks
-    task = task.replace(/^\d{4}-\d{2}-\d{2}\s*-\s*/, '');
-  }
-
-  // Calculate drop position
   const listElement = event.currentTarget;
-  const items = Array.from(listElement.children);
-  let targetIndex = items.length;
-
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    const rect = item.getBoundingClientRect();
-    const middle = rect.top + rect.height / 2;
-
-    if (event.clientY < middle) {
-      targetIndex = i;
-      break;
-    }
-  }
-
-  // Remove from source
-  if (sourceSection === 'Priority') {
-    priorityTasks.value.splice(sourceIndex, 1);
-  } else if (sourceSection === 'Other') {
-    otherTasks.value.splice(sourceIndex, 1);
-  } else if (sourceSection === 'Done') {
-    doneTasks.value.splice(sourceIndex, 1);
-  }
+  let targetIndex = calculateDropPosition(event, listElement);
 
   // Adjust target index if moving within same section
   if (sourceSection === targetSection && sourceIndex < targetIndex) {
     targetIndex--;
   }
 
-  // Insert at target
-  if (targetSection === 'Priority') {
-    priorityTasks.value.splice(targetIndex, 0, task);
-  } else if (targetSection === 'Other') {
-    otherTasks.value.splice(targetIndex, 0, task);
-  }
-
+  await moveTaskBetweenSections(sourceSection, targetSection, sourceIndex, targetIndex);
   draggedItem.value = null;
-  saveTasks();
 }
 
-// Context menu handlers
-function showContextMenu(event, listType, index) {
-  // Don't show menu if clicking on a link
-  if (event.target.tagName === 'A') {
-    return;
-  }
-
-  event.preventDefault();
-
-  let task;
-  if (listType === 'Priority') {
-    task = priorityTasks.value[index];
-  } else if (listType === 'Other') {
-    task = otherTasks.value[index];
-  } else if (listType === 'Done') {
-    task = doneTasks.value[index];
-  }
-
-  contextMenu.value = {
-    show: true,
-    x: event.clientX,
-    y: event.clientY,
-    listType,
-    taskIndex: index,
-    taskText: task
-  };
+// Context Menu Handlers
+function handleShowContextMenu(event, listType, index, taskText) {
+  showContextMenu(event, listType, index, taskText);
 }
 
-function closeContextMenu() {
-  contextMenu.value.show = false;
-}
+async function handleEditFromMenu() {
+  const { listType, taskIndex, taskText } = getMenuContext();
 
-function editTask() {
-  const { listType, taskIndex } = contextMenu.value;
-  let task;
+  // Remove task from list
+  const lists = getTaskLists();
+  const sourceList = getTaskList(listType, lists);
+  sourceList.splice(taskIndex, 1);
 
-  if (listType === 'Priority') {
-    task = priorityTasks.value.splice(taskIndex, 1)[0];
-  } else if (listType === 'Other') {
-    task = otherTasks.value.splice(taskIndex, 1)[0];
-  }
-
-  // Store the original position and list for restoration
-  editingTask.value = {
-    isEditing: true,
-    originalList: listType,
-    originalIndex: taskIndex,
-    originalText: task
-  };
-
-  newTask.value = task;
+  // Start editing
+  startEdit(listType, taskIndex, taskText);
   closeContextMenu();
-  saveTasks();
 
-  // Focus the textarea
-  setTimeout(() => {
-    document.querySelector('textarea')?.focus();
-  }, 100);
+  // Save without triggering a reload
+  await saveTasksWithoutReload();
 }
 
-async function deleteTask() {
-  const { listType, taskIndex } = contextMenu.value;
-
-  if (listType === 'Priority') {
-    priorityTasks.value.splice(taskIndex, 1);
-  } else if (listType === 'Other') {
-    otherTasks.value.splice(taskIndex, 1);
-  } else if (listType === 'Done') {
-    doneTasks.value.splice(taskIndex, 1);
-  }
-
+async function handleDelete() {
+  const { listType, taskIndex } = getMenuContext();
   closeContextMenu();
-  await saveTasks();
+  await deleteTask(listType, taskIndex);
 }
 
-// Scroll to a specific task in a list
-function scrollToTask(listType, index) {
-  setTimeout(() => {
-    let selector;
-    if (listType === 'Priority') {
-      selector = `#priority-${index}`;
-    } else if (listType === 'Other') {
-      selector = `#other-${index}`;
-    } else if (listType === 'Done') {
-      selector = `#done-${index}`;
-    }
-
-    if (selector) {
-      const element = document.querySelector(selector);
-      if (element) {
-        // Get the parent li element
-        const taskItem = element.closest('.task-item');
-        if (taskItem) {
-          taskItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          // Briefly highlight the task
-          taskItem.style.backgroundColor = '#fff3cd';
-          setTimeout(() => {
-            taskItem.style.backgroundColor = '';
-          }, 1500);
-        }
-      }
-    }
-  }, 100);
-}
-
-async function moveToOther() {
-  const { taskIndex } = contextMenu.value;
-  const task = priorityTasks.value.splice(taskIndex, 1)[0];
-  otherTasks.value.unshift(task);
+async function handleMoveToOther() {
+  const { taskIndex } = getMenuContext();
   closeContextMenu();
-  await saveTasks();
-  // Scroll to show the task in its new location (top of Other list)
+  await moveTaskBetweenSections('Priority', 'Other', taskIndex, 0);
   scrollToTask('Other', 0);
 }
 
-async function moveToPriority() {
-  const { taskIndex } = contextMenu.value;
-  const task = otherTasks.value.splice(taskIndex, 1)[0];
-  priorityTasks.value.unshift(task);
+async function handleMoveToPriority() {
+  const { taskIndex } = getMenuContext();
   closeContextMenu();
-  await saveTasks();
-  // Scroll to show the task in its new location (top of Priority list)
+  await moveTaskBetweenSections('Other', 'Priority', taskIndex, 0);
   scrollToTask('Priority', 0);
 }
 
-// Save markdown content from editor
+// Markdown Editor
 async function saveMarkdown() {
   try {
     error.value = '';
-    const response = await fetch(`${API_BASE}/todo`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ content: markdownContent.value }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to save markdown');
-    }
-
-    // Reload tasks after saving
+    await saveTodoContent(markdownContent.value);
     await loadTasks();
   } catch (err) {
     error.value = `Error saving markdown: ${err.message}`;
@@ -808,60 +370,47 @@ async function saveMarkdown() {
   }
 }
 
-// Watch for external file changes
-function setupFileWatcher() {
-  eventSource = new EventSource(`${API_BASE}/todo/watch`);
-
-  eventSource.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'change') {
-      console.log('File changed externally, reloading...');
-      loadTasks();
-    }
-  };
-
-  eventSource.onerror = (err) => {
-    console.error('EventSource error:', err);
-    // Attempt to reconnect
-    eventSource.close();
-    setTimeout(setupFileWatcher, 5000);
-  };
-}
-
 // Auto-save markdown content with debouncing
 watch(markdownContent, (newValue, oldValue) => {
-  // Only auto-save if content actually changed and we're in the editor tab
   if (newValue !== oldValue && activeTab.value === 'editor') {
-    // Clear existing timer
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-    }
-    // Set new timer to save after 1 second of inactivity
-    autoSaveTimer = setTimeout(() => {
-      saveMarkdown();
-    }, 1000);
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(saveMarkdown, AUTO_SAVE_DELAY_MS);
   }
 });
 
-// Handle ESC key to close context menu
-function handleEscKey(event) {
-  if (event.key === 'Escape' && contextMenu.value.show) {
-    closeContextMenu();
+// Watch tasks for markdown content sync
+watch([priorityTasks, otherTasks, doneTasks], () => {
+  if (activeTab.value !== 'editor') {
+    markdownContent.value = generateMarkdownFromTasks(
+      priorityTasks.value,
+      otherTasks.value,
+      doneTasks.value
+    );
   }
-}
+}, { deep: true });
 
-onMounted(() => {
-  loadTasks();
-  setupFileWatcher();
-  // Add ESC key listener for context menu
+// Lifecycle
+onMounted(async () => {
+  const content = await loadTasks();
+  markdownContent.value = content;
+
+  // Setup file watcher with a wrapper that checks if we're saving locally
+  eventSource = setupFileWatcher(() => {
+    // Only reload if we're not in the middle of a local save operation
+    if (!isSavingLocally.value) {
+      console.log('External file change detected, reloading...');
+      loadTasks();
+    } else {
+      console.log('Skipping reload - local save in progress');
+    }
+  });
+
   window.addEventListener('keydown', handleEscKey);
 });
 
 onUnmounted(() => {
-  if (eventSource) {
-    eventSource.close();
-  }
-  // Remove ESC key listener
+  if (eventSource) eventSource.close();
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
   window.removeEventListener('keydown', handleEscKey);
 });
 </script>
@@ -936,81 +485,6 @@ onUnmounted(() => {
   gap: 1.5rem;
 }
 
-.task-list {
-  width: 100%;
-}
-
-.task-list h2 {
-  margin-top: 0;
-  margin-bottom: 0.6rem;
-}
-
-.task-list ul {
-  list-style: none;
-  padding: 0;
-  min-height: 80px;
-  border: 1px dashed #ccc;
-  border-radius: 4px;
-  padding: 0.4rem;
-}
-
-.task-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.4rem;
-  margin-bottom: 0.4rem;
-  background-color: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-  cursor: move;
-}
-
-.task-item input[type="checkbox"] {
-  cursor: pointer;
-  margin-top: 0.25rem;
-  flex-shrink: 0;
-}
-
-.task-text {
-  flex: 1;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-}
-
-.task-text a {
-  color: #0066cc !important;
-  text-decoration: underline !important;
-}
-
-.task-text a:visited {
-  color: #0066cc !important;
-}
-
-.task-text a:hover {
-  color: #0052a3 !important;
-}
-
-.task-text img {
-  max-width: 100%;
-  height: auto;
-  display: inline-block;
-  margin: 0.5rem 0;
-  border-radius: 4px;
-  vertical-align: middle;
-}
-
-.task-first-line {
-  display: block;
-}
-
-.task-continuation {
-  display: block;
-}
-
-.task-indent {
-  display: block;
-}
-
 .markdown-editor {
   margin-top: 0.5rem;
   display: flex;
@@ -1029,11 +503,6 @@ onUnmounted(() => {
   font-family: 'Courier New', monospace;
   resize: none;
   min-height: 400px;
-}
-
-.markdown-editor button {
-  margin-top: 0.5rem;
-  align-self: flex-start;
 }
 
 .button-group {
@@ -1144,57 +613,5 @@ onUnmounted(() => {
 
 .notes-content a:hover {
   color: #0052a3 !important;
-}
-
-/* Context Menu Backdrop */
-.context-menu-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 999;
-  background: transparent;
-}
-
-/* Context Menu */
-.context-menu {
-  position: fixed;
-  background: white;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  padding: 4px 0;
-  z-index: 1000;
-  min-width: 180px;
-}
-
-.context-menu-item {
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  background: none;
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: #213547;
-  transition: background-color 0.1s;
-}
-
-.context-menu-item:hover {
-  background-color: #f6f8fa;
-}
-
-.context-menu-item .icon {
-  font-size: 16px;
-  width: 20px;
-  text-align: center;
-}
-
-.task-item {
-  user-select: none;
 }
 </style>
