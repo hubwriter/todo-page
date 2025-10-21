@@ -1,0 +1,1 @@
+Whenever an agent creates of edits any Markdown file, it should make sure the file has a commented out line at the start of the line saying that the file was created or edited by the AI (giving the name of the AI agent) and the datetime of the creation or update.
