@@ -221,8 +221,8 @@ const editState = computed(() => getEditState());
 
 const taskInputPlaceholder = computed(() => {
   return editState.value.isEditing
-    ? 'Editing task... (Cmd+Enter to save to original position)'
-    : 'Add new task to Priority... (Cmd+Enter to submit)';
+    ? 'Editing task... (Cmd+Enter or Ctrl+S to save to original position)'
+    : 'Add new task to Priority... (Cmd+Enter or Ctrl+S to submit)';
 });
 
 // Wrapper for saveTasks that prevents file watcher reload
@@ -281,6 +281,11 @@ async function handleCancel() {
 function handleKeyDown(event) {
   // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to submit
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+    event.preventDefault();
+    handleAddOrSave();
+  }
+  // Ctrl+S to submit (same as Cmd+Enter)
+  if (event.ctrlKey && event.key === 's') {
     event.preventDefault();
     handleAddOrSave();
   }
