@@ -38,6 +38,7 @@
       <!-- Add/Edit Task Form -->
       <div class="add-task">
         <textarea
+          ref="taskInputRef"
           v-model="newTask"
           :placeholder="taskInputPlaceholder"
           :aria-label="editState.isEditing ? 'Edit task' : 'New task'"
@@ -178,6 +179,8 @@ const activeTab = ref('tasks');
 const markdownContent = ref('');
 const draggedItem = ref(null);
 const isSavingLocally = ref(false); // Flag to prevent file watcher reload during our saves
+const taskInputRef = ref(null); // Reference to the task input textarea
+const hasInitialFocusBeenApplied = ref(false); // Track if initial auto-focus has been applied
 let eventSource = null;
 let autoSaveTimer = null;
 
@@ -218,8 +221,8 @@ const editState = computed(() => getEditState());
 
 const taskInputPlaceholder = computed(() => {
   return editState.value.isEditing
-    ? 'Editing task... (Cmd+Enter to save to original position)'
-    : 'Add new task to Priority... (Cmd+Enter to submit)';
+    ? 'Editing task... (Cmd+Enter or Ctrl+S to save to original position)'
+    : 'Add new task to Priority... (Cmd+Enter or Ctrl+S to submit)';
 });
 
 // Wrapper for saveTasks that prevents file watcher reload
@@ -278,6 +281,11 @@ async function handleCancel() {
 function handleKeyDown(event) {
   // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to submit
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+    event.preventDefault();
+    handleAddOrSave();
+  }
+  // Ctrl+S to submit (same as Cmd+Enter)
+  if (event.ctrlKey && event.key === 's') {
     event.preventDefault();
     handleAddOrSave();
   }
@@ -405,6 +413,19 @@ onMounted(async () => {
   });
 
   window.addEventListener('keydown', handleEscKey);
+
+  // Auto-focus the task input on initial load
+  // FR-001: Auto-focus on initial load
+  // FR-003: Respect existing user focus (don't override if editing)
+  // FR-002: Only apply on initial load (hasInitialFocusBeenApplied flag)
+  if (!hasInitialFocusBeenApplied.value && !editState.value.isEditing) {
+    // Use nextTick to ensure DOM is fully rendered
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (taskInputRef.value && activeTab.value === 'tasks') {
+      taskInputRef.value.focus();
+      hasInitialFocusBeenApplied.value = true;
+    }
+  }
 });
 
 onUnmounted(() => {
