@@ -1,4 +1,5 @@
-# Markdown-driven to-do list web app
+<!-- Don't panic! Copilot was here. -->
+# MarkdownDrivenToDoListWebApp
 
 A Vue 3 + Vite web application for managing to-do lists with markdown file synchronization. Edit tasks in the browser or directly in the markdown file - changes are reflected instantly in both places.
 
@@ -18,7 +19,7 @@ A Vue 3 + Vite web application for managing to-do lists with markdown file synch
 - ✅ **Accessible**: Keyboard navigation, ESC to dismiss menus, screen reader support
 - ✅ **Responsive**: Works on desktop and mobile devices
 
-## Getting started
+## GettingStarted
 
 ### Prerequisites
 
@@ -42,7 +43,7 @@ npm install
 
 The app stores tasks in a markdown file. There are three ways to configure the file location (in order of priority):
 
-#### Option 1: Configuration file (recommended)
+#### Option1ConfigurationFileRecommended
 
 Create a `config.json` file in the project root:
 
@@ -58,7 +59,7 @@ Edit `config.json` to specify your desired file path:
 }
 ```
 
-#### Option 2: Environment variable
+#### Option2EnvironmentVariable
 
 Set the `TODO_FILE_PATH` environment variable:
 
@@ -72,13 +73,13 @@ Or set it directly when running:
 TODO_FILE_PATH="/Users/yourname/path/to/todo.md" npm run dev
 ```
 
-#### Option 3: Default location
+#### Option3DefaultLocation
 
 If no configuration is provided, the app uses `todo.md` in the project root directory.
 
 **Note**: The `config.json` file is ignored by git, so you can safely store your personal file paths without committing them to the repository.
 
-### Running the app
+### RunningTheApp
 
 Start the development server:
 ```bash
@@ -94,7 +95,7 @@ Open http://localhost:3000 in your browser.
 
 **Note**: The app now uses a single server on port 3000 (previously used two separate servers on ports 3001 and 5173).
 
-### Building for production
+### BuildingForProduction
 
 ```bash
 npm run build
@@ -103,7 +104,7 @@ npm start
 
 The built files will be in the `dist` directory and served by the Express server.
 
-### Auto-start on login (macOS)
+### AutoStartOnLoginMacOS
 
 To automatically start the app when you log in:
 
@@ -130,7 +131,7 @@ The app will be available at http://localhost:3000 after login.
 
 ## Usage
 
-### Adding tasks
+### AddingTasks
 
 1. Type a task in the input field at the top
 2. Click "Add" or press **Cmd+Enter** (Mac) / **Ctrl+Enter** (Windows/Linux)
@@ -139,7 +140,7 @@ The app will be available at http://localhost:3000 after login.
 
 **Tip**: You can use markdown formatting in tasks, including links and multi-line content!
 
-### Context menu (double-click)
+### ContextMenuDoubleClick
 
 Double-click any task to open a quick-action menu:
 
@@ -153,7 +154,7 @@ Double-click any task to open a quick-action menu:
 
 **Dismiss the menu**: Click anywhere outside the menu or press **ESC**
 
-### Editing tasks
+### EditingTasks
 
 1. Double-click a task and select "Edit"
 2. The task text appears in the input field at the top
@@ -162,19 +163,19 @@ Double-click any task to open a quick-action menu:
 5. The task returns to its original position in the list
 6. Click "Cancel" to discard changes and restore the original task
 
-### Reordering tasks
+### ReorderingTasks
 
 1. Drag a task from Priority or Other
 2. Drop it at the desired position
 3. Changes are automatically saved
 
-### Completing tasks
+### CompletingTasks
 
 1. Check the checkbox next to a task in Priority or Other
 2. The task moves to the top of Done with today's date
 3. Changes are automatically saved
 
-### Moving tasks between lists
+### MovingTasksBetweenLists
 
 **Using the context menu:**
 1. Double-click a task
@@ -185,20 +186,20 @@ Double-click any task to open a quick-action menu:
 1. Check the checkbox next to a task in Other
 2. The task moves to the top of Priority (without a date)
 
-### Editing markdown directly
+### EditingMarkdownDirectly
 
 1. Switch to the Markdown tab
 2. Make your changes in the editor
 3. Changes are automatically saved after you stop typing (1 second delay)
 4. The task lists update to reflect your changes
 
-### External edits
+### ExternalEdits
 
 1. Open the markdown file in any text editor
 2. Make changes and save
 3. The web app automatically refreshes to show your changes
 
-## Markdown format
+## MarkdownFormat
 
 The markdown file follows this structure:
 
@@ -219,7 +220,7 @@ The markdown file follows this structure:
 - [x] 2025-10-15 - Another completed task
 ```
 
-## Technical stack
+## TechnicalStack
 
 - **Frontend**: Vue 3 with Composition API
 - **Build Tool**: Vite (integrated via middleware in development)
@@ -228,7 +229,7 @@ The markdown file follows this structure:
 - **Real-time Updates**: Server-Sent Events (SSE)
 - **Markdown Parsing**: Marked.js
 
-## Project structure
+## ProjectStructure
 
 ```
 todo-page/
