@@ -2,7 +2,7 @@
 
 A Vue 3 + Vite web application for managing to-do lists with markdown file synchronization. Edit tasks in the browser or directly in the markdown file - changes are reflected instantly in both places.
 
-![Application screenshot](to-do-application-screenshot.png)
+<img src="/hubwriter/todo-page/raw/main/to-do-application-screenshot.png" alt="Application screenshot" style="max-width: 70%; display:block; margin:0 auto">
 
 ## Features
 
