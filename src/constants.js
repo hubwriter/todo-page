@@ -7,6 +7,7 @@ export const API_BASE = '/api';
 export const MAX_BODY_SIZE = 1 * 1024 * 1024; // 1MB
 export const MAX_TODO_SIZE = 5 * 1024 * 1024; // 5MB
 export const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+export const MAX_LOCAL_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 
 // Rate Limiting
 export const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
@@ -51,3 +52,12 @@ export const DEFAULT_TODO_CONTENT = `# Priority
 
 # Done
 `;
+
+// Links feature
+export const DEFAULT_LINK_CATEGORY = 'GitHub';
+export const MAX_LINK_CATEGORY_LENGTH = 100;
+export const MAX_LINK_URL_LENGTH = 2000;
+export const MAX_LINK_DESCRIPTION_LENGTH = 2000;
+
+// Default links file content (empty list of categories)
+export const DEFAULT_LINKS_CONTENT = '[]';

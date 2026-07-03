@@ -31,6 +31,15 @@
       >
         Notes
       </button>
+      <button
+        @click="activeTab = 'links'"
+        :class="{ active: activeTab === 'links' }"
+        role="tab"
+        :aria-selected="activeTab === 'links'"
+        aria-controls="links-panel"
+      >
+        Links
+      </button>
     </div>
 
     <!-- Tasks Tab -->
@@ -126,10 +135,13 @@
       <div class="notes-content">
         <h2>About</h2>
 
-        <h3>Source File</h3>
-        <p>The todo data is stored in:</p>
+        <h3>Source Files</h3>
+        <p>The tasks (shown on the Tasks and Markdown tabs) are stored in:</p>
         <p><code>/Users/alistair/work-stuff/tech-writing/todo.md</code></p>
         <p>To edit this file <a :href="`vscode://file/Users/alistair/work-stuff/tech-writing/todo.md`">click here</a> or press <kbd>control</kbd>+<kbd>command</kbd>+<kbd>-</kbd></p>
+        <p>The links (shown on the Links tab) are stored as JSON in:</p>
+        <p><code>/Users/alistair/work-stuff/tech-writing/links.json</code></p>
+        <p>This file lives in the same folder as the todo file. To edit it <a :href="`vscode://file/Users/alistair/work-stuff/tech-writing/links.json`">click here</a>.</p>
 
         <h3>Project Information</h3>
         <p>Code repository: <a href="https://github.com/hubwriter/todo-page" target="_blank" rel="noopener noreferrer">https://github.com/hubwriter/todo-page</a></p>
@@ -141,7 +153,7 @@
           <li><strong>Frontend:</strong> Vue 3 (Composition API), Vite</li>
           <li><strong>Backend:</strong> Node.js, Express</li>
           <li><strong>Markdown:</strong> Marked.js for rendering</li>
-          <li><strong>Storage:</strong> Plain markdown file with file-watching</li>
+          <li><strong>Storage:</strong> Tasks in a markdown file (with file-watching); links in a JSON file</li>
         </ul>
 
         <p><strong>Deployment:</strong></p>
@@ -152,6 +164,11 @@
         </ul>
       </div>
     </div>
+
+    <!-- Links Tab -->
+    <div v-show="activeTab === 'links'" id="links-panel" role="tabpanel">
+      <LinksTab :active="activeTab === 'links'" />
+    </div>
   </div>
 </template>
 
@@ -160,12 +177,14 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { marked } from 'marked';
 import TaskList from './components/TaskList.vue';
 import ContextMenu from './components/ContextMenu.vue';
+import LinksTab from './components/LinksTab.vue';
 import { useTasks } from './composables/useTasks.js';
 import { useContextMenu } from './composables/useContextMenu.js';
 import { useTaskEditor } from './composables/useTaskEditor.js';
 import { setupFileWatcher, saveTodoContent } from './api/todoApi.js';
 import { generateMarkdownFromTasks, removeDateFromTask } from './utils/markdownUtils.js';
 import { calculateDropPosition, getTaskList } from './utils/taskUtils.js';
+import { tabToHash, hashToTab, getTabFromHash } from './utils/tabRouting.js';
 import { AUTO_SAVE_DELAY_MS } from './constants.js';
 
 // Configure marked for inline rendering
@@ -175,7 +194,7 @@ marked.setOptions({
 });
 
 // State
-const activeTab = ref('tasks');
+const activeTab = ref(getTabFromHash(window.location.hash));
 const markdownContent = ref('');
 const draggedItem = ref(null);
 const isSavingLocally = ref(false); // Flag to prevent file watcher reload during our saves
@@ -396,6 +415,22 @@ watch([priorityTasks, otherTasks, doneTasks], () => {
   }
 }, { deep: true });
 
+// Keep the URL hash in sync when the active tab changes
+watch(activeTab, (tab) => {
+  const hash = `#${tabToHash(tab)}`;
+  if (window.location.hash !== hash) {
+    window.location.hash = hash;
+  }
+});
+
+// Switch tabs when the URL hash changes (deep links, back/forward navigation)
+function handleHashChange() {
+  const tab = hashToTab(window.location.hash);
+  if (tab && tab !== activeTab.value) {
+    activeTab.value = tab;
+  }
+}
+
 // Lifecycle
 onMounted(async () => {
   const content = await loadTasks();
@@ -413,6 +448,7 @@ onMounted(async () => {
   });
 
   window.addEventListener('keydown', handleEscKey);
+  window.addEventListener('hashchange', handleHashChange);
 
   // Auto-focus the task input on initial load
   // FR-001: Auto-focus on initial load
@@ -432,6 +468,7 @@ onUnmounted(() => {
   if (eventSource) eventSource.close();
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   window.removeEventListener('keydown', handleEscKey);
+  window.removeEventListener('hashchange', handleHashChange);
 });
 </script>
 
