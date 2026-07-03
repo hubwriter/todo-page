@@ -75,7 +75,7 @@ describe('LinksTab', () => {
     expect(options).toContain('GitHub');
   });
 
-  it('collapses categories by default and toggles Expand all / Collapse all', async () => {
+  it('expands categories by default and toggles Collapse all / Expand all', async () => {
     const wrapper = mount(LinksTab);
     await flushPromises();
     // No toggle until there is at least one category
@@ -87,16 +87,16 @@ describe('LinksTab', () => {
 
     const toggle = wrapper.find('.expand-toggle');
     expect(toggle.exists()).toBe(true);
-    expect(toggle.text()).toBe('Expand all');
-    expect(wrapper.find('ul.link-box').element.style.display).toBe('none');
-
-    await toggle.trigger('click');
-    expect(wrapper.find('.expand-toggle').text()).toBe('Collapse all');
+    expect(toggle.text()).toBe('Collapse all');
     expect(wrapper.find('ul.link-box').element.style.display).not.toBe('none');
 
-    await wrapper.find('.expand-toggle').trigger('click');
+    await toggle.trigger('click');
     expect(wrapper.find('.expand-toggle').text()).toBe('Expand all');
     expect(wrapper.find('ul.link-box').element.style.display).toBe('none');
+
+    await wrapper.find('.expand-toggle').trigger('click');
+    expect(wrapper.find('.expand-toggle').text()).toBe('Collapse all');
+    expect(wrapper.find('ul.link-box').element.style.display).not.toBe('none');
   });
 
   it('keeps a category expanded while its context menu is open', async () => {
@@ -105,6 +105,10 @@ describe('LinksTab', () => {
     await fill(wrapper, { category: 'GitHub', url: 'https://x.com', description: 'A link' });
     await wrapper.find('.btn-primary').trigger('click');
     await flushPromises();
+
+    // Collapse all so the box is only open via hover / the context menu
+    await wrapper.find('.expand-toggle').trigger('click');
+    expect(wrapper.find('ul.link-box').element.style.display).toBe('none');
 
     const section = wrapper.find('.link-list');
     await section.trigger('mouseenter');
@@ -139,12 +143,12 @@ describe('LinksTab', () => {
     await fill(wrapper, { category: 'GitHub', url: 'https://x.com', description: 'd' });
     await wrapper.find('.btn-primary').trigger('click');
     await flushPromises();
-    expect(wrapper.find('ul.link-box').element.style.display).toBe('none');
+    expect(wrapper.find('ul.link-box').element.style.display).not.toBe('none');
 
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
     await flushPromises();
-    expect(wrapper.find('ul.link-box').element.style.display).not.toBe('none');
-    expect(wrapper.find('.expand-toggle').text()).toBe('Collapse all');
+    expect(wrapper.find('ul.link-box').element.style.display).toBe('none');
+    expect(wrapper.find('.expand-toggle').text()).toBe('Expand all');
     wrapper.unmount();
   });
 
@@ -156,7 +160,8 @@ describe('LinksTab', () => {
     await flushPromises();
     wrapper.find('#link-url').element.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
     await flushPromises();
-    expect(wrapper.find('ul.link-box').element.style.display).toBe('none');
+    // Default is expanded; a spacebar in a field must not collapse it
+    expect(wrapper.find('ul.link-box').element.style.display).not.toBe('none');
     wrapper.unmount();
   });
 
@@ -168,7 +173,8 @@ describe('LinksTab', () => {
     await flushPromises();
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
     await flushPromises();
-    expect(wrapper.find('ul.link-box').element.style.display).toBe('none');
+    // Default is expanded; a spacebar while inactive must not collapse it
+    expect(wrapper.find('ul.link-box').element.style.display).not.toBe('none');
     wrapper.unmount();
   });
 
@@ -184,7 +190,8 @@ describe('LinksTab', () => {
       new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
     );
     await flushPromises();
-    expect(wrapper.find('ul.link-box').element.style.display).toBe('none');
+    // Default is expanded and the handler skipped the button, so it stays open
+    expect(wrapper.find('ul.link-box').element.style.display).not.toBe('none');
     wrapper.unmount();
   });
 });

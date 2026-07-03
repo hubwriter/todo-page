@@ -175,10 +175,10 @@ const showCategoryDropdown = ref(false);
 // Drag and drop state
 const draggedLink = ref(null);
 
-// Collapse/expand state. Categories are collapsed by default; a category
-// expands on hover unless "Expand all" is active. Dragging temporarily expands
-// all categories so entries can be dropped into any of them.
-const expandAll = ref(false);
+// Collapse/expand state. Categories are expanded by default; when collapsed a
+// category expands on hover. Dragging temporarily expands all categories so
+// entries can be dropped into any of them.
+const expandAll = ref(true);
 const isDragging = ref(false);
 const forceExpanded = computed(() => expandAll.value || isDragging.value);
 
