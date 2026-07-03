@@ -1,3 +1,4 @@
 {
-  "todoFilePath": "/path/to/your/todo.md"
+  "todoFilePath": "/path/to/your/todo.md",
+  "linksFilePath": "/path/to/your/links.json"
 }

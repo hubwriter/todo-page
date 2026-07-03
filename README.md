@@ -1,6 +1,9 @@
+<!-- Don't panic! Copilot was here. -->
+<!-- Oh sit down. Oh sit down. Sit down next to me! -->
+<!-- Last edited by GitHub Copilot on 2026-07-01. -->
 # Markdown-driven to-do list web app
 
-A Vue 3 + Vite web application for managing to-do lists with markdown file synchronization. Edit tasks in the browser or directly in the markdown file - changes are reflected instantly in both places.
+A Vue 3 + Vite web application for managing to-do lists with markdown file synchronization. Edit tasks in the browser or directly in the markdown file - changes are reflected instantly in both places. It also includes a **Links** tab for keeping categorised bookmarks.
 
 <img src="to-do-application-screenshot.png" alt="Application screenshot" style="max-width: 70%; display:block; margin:0 auto">
 
@@ -17,6 +20,7 @@ A Vue 3 + Vite web application for managing to-do lists with markdown file synch
 - ✅ **Live Sync**: External changes to the markdown file are automatically reflected in the app
 - ✅ **Markdown Editor**: Built-in editor to directly edit the markdown content
 - ✅ **Markdown Support**: Tasks can include links, formatting, and multi-line content
+- ✅ **Links Tab**: Keep categorised bookmarks (Category, URL, Description) with URL validation, drag-and-drop between categories, and edit/delete
 - ✅ **Accessible**: Keyboard navigation, ESC to dismiss menus, screen reader support
 - ✅ **Responsive**: Works on desktop and mobile devices
 
@@ -42,7 +46,7 @@ npm install
 
 ### Configuration
 
-The app stores tasks in a markdown file. There are three ways to configure the file location (in order of priority):
+The app stores tasks in a markdown file and links in a JSON file. There are three ways to configure the file locations (in order of priority):
 
 #### Option 1: Configuration file (recommended)
 
@@ -52,20 +56,24 @@ Create a `config.json` file in the project root:
 cp config.json.example config.json
 ```
 
-Edit `config.json` to specify your desired file path:
+Edit `config.json` to specify your desired file paths:
 
 ```json
 {
-  "todoFilePath": "/Users/yourname/path/to/todo.md"
+  "todoFilePath": "/Users/yourname/path/to/todo.md",
+  "linksFilePath": "/Users/yourname/path/to/links.json"
 }
 ```
 
+`linksFilePath` is optional; if omitted, the app stores links in a `links.json` file in the same folder as the todo file.
+
 #### Option 2: Environment variable
 
-Set the `TODO_FILE_PATH` environment variable:
+Set the `TODO_FILE_PATH` environment variable (and optionally `LINKS_FILE_PATH`):
 
 ```bash
 export TODO_FILE_PATH="/Users/yourname/path/to/todo.md"
+export LINKS_FILE_PATH="/Users/yourname/path/to/links.json"
 ```
 
 Or set it directly when running:
@@ -76,7 +84,7 @@ TODO_FILE_PATH="/Users/yourname/path/to/todo.md" npm run dev
 
 #### Option 3: Default location
 
-If no configuration is provided, the app uses `todo.md` in the project root directory.
+If no configuration is provided, the app uses `todo.md` in the project root directory, and stores links in `links.json` alongside the todo file.
 
 **Note**: The `config.json` file is ignored by git, so you can safely store your personal file paths without committing them to the repository.
 
@@ -200,6 +208,21 @@ Double-click any task to open a quick-action menu:
 2. Make changes and save
 3. The web app automatically refreshes to show your changes
 
+### Managing links
+
+The **Links** tab keeps a categorised list of useful links.
+
+1. Switch to the **Links** tab
+2. Fill in the three fields:
+   - **Category**: type a new category or pick an existing one from the dropdown (defaults to "GitHub")
+   - **URL**: must be a valid link (if you omit the scheme, `https://` is added automatically)
+   - **Description**: a short note (any line breaks are collapsed to a single line)
+3. Click **Add** — the entry appears as a bullet under its category heading
+
+**Edit or delete:** Double-click an entry to open a menu with Edit and Delete.
+
+**Reorder or re-categorise:** Drag an entry to reorder it within a category, or drop it onto another category's box to move it there. A category disappears once its last entry is removed.
+
 ## Markdown format
 
 The markdown file follows this structure:
@@ -221,6 +244,21 @@ The markdown file follows this structure:
 - [x] 2025-10-15 - Another completed task
 ```
 
+## Links file format
+
+Links are stored in a JSON file (default: `links.json`, in the same folder as the todo file). Each category has a name and an ordered list of link entries:
+
+```json
+[
+  {
+    "name": "GitHub",
+    "links": [
+      { "id": "…", "url": "https://github.com/hubwriter/todo-page", "description": "The repository for this app" }
+    ]
+  }
+]
+```
+
 ## Technical stack
 
 - **Frontend**: Vue 3 with Composition API
@@ -229,19 +267,41 @@ The markdown file follows this structure:
 - **File Watching**: Chokidar
 - **Real-time Updates**: Server-Sent Events (SSE)
 - **Markdown Parsing**: Marked.js
+- **Storage**: Tasks in a markdown file; links in a JSON file
 
 ## Project structure
 
 ```
 todo-page/
 ├── src/
-│   ├── App.vue          # Main application component
-│   ├── main.js          # Application entry point
-│   └── style.css        # Global styles
-├── server.js            # Express backend for file operations
-├── index.html           # HTML template
-├── vite.config.js       # Vite configuration
-└── package.json         # Dependencies and scripts
+│   ├── App.vue                 # Main component (tabs: Tasks, Markdown, Notes, Links)
+│   ├── main.js                 # Application entry point
+│   ├── style.css               # Global styles
+│   ├── constants.js            # Shared constants and limits
+│   ├── api/
+│   │   ├── todoApi.js          # Task load/save + file-watch client
+│   │   └── linksApi.js         # Links load/save client
+│   ├── components/
+│   │   ├── TaskList.vue        # Task list rendering
+│   │   ├── ContextMenu.vue     # Task context menu
+│   │   ├── LinksTab.vue        # Links tab (form, categories, menu)
+│   │   ├── LinkList.vue        # A category's bullet list of links
+│   │   └── LinkContextMenu.vue # Link edit/delete menu
+│   ├── composables/
+│   │   ├── useTasks.js         # Task state and operations
+│   │   ├── useTaskEditor.js    # Task editing state
+│   │   ├── useContextMenu.js   # Task context menu state
+│   │   └── useLinks.js         # Links state and operations
+│   └── utils/
+│       ├── markdownUtils.js    # Markdown parse/generate + sanitise
+│       ├── taskUtils.js        # Task list helpers (drag position, etc.)
+│       └── linkUtils.js        # URL validation/normalisation + ids
+├── server.js                   # Express backend (todo + links APIs)
+├── server/
+│   └── pathUtils.js            # Path validation helpers
+├── index.html                  # HTML template
+├── vite.config.js              # Vite configuration
+└── package.json                # Dependencies and scripts
 ```
 
 ## License

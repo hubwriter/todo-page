@@ -15,9 +15,13 @@ import {
   RATE_LIMIT_MAX_REQUESTS,
   ALLOWED_IMAGE_EXTENSIONS,
   IMAGE_CONTENT_TYPES,
-  DEFAULT_TODO_CONTENT
+  MAX_LOCAL_FILE_SIZE,
+  DEFAULT_TODO_CONTENT,
+  DEFAULT_LINKS_CONTENT
 } from './src/constants.js';
 import { validatePath, validateFileExtension } from './server/pathUtils.js';
+import { sanitizeLinkCategories } from './server/linkValidation.js';
+import { isPathReferencedByCategories, getLocalFileContentType } from './server/localFile.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -105,6 +109,37 @@ const TODO_FILE_PATH = await getTodoFilePath();
 
 console.log(`Using todo file at: ${TODO_FILE_PATH}`);
 
+// Get the links file path from config, environment, or default (alongside the todo file)
+async function getLinksFilePath(todoFilePath) {
+  const config = await loadConfig();
+
+  // Priority: environment variable > config file > default
+  let filePath;
+  if (process.env.LINKS_FILE_PATH) {
+    filePath = process.env.LINKS_FILE_PATH;
+  } else if (config.linksFilePath) {
+    filePath = config.linksFilePath;
+  } else {
+    filePath = join(dirname(todoFilePath), 'links.json');
+  }
+
+  // Normalize and resolve the path to prevent directory traversal
+  filePath = normalize(resolve(filePath));
+
+  // Security validation: ensure the path doesn't contain suspicious patterns
+  if (filePath.includes('..')) {
+    console.warn('Suspicious links path pattern detected, using default');
+    return normalize(resolve(join(dirname(todoFilePath), 'links.json')));
+  }
+
+  return filePath;
+}
+
+// Initialize links file path
+const LINKS_FILE_PATH = await getLinksFilePath(TODO_FILE_PATH);
+
+console.log(`Using links file at: ${LINKS_FILE_PATH}`);
+
 // Ensure the file exists
 async function ensureFileExists() {
   try {
@@ -147,6 +182,64 @@ app.post('/api/todo', fileOperationLimiter, async (req, res) => {
   } catch (error) {
     console.error('Error writing file:', error);
     res.status(500).json({ error: 'Failed to write todo file' });
+  }
+});
+
+// Ensure the links file exists
+async function ensureLinksFileExists() {
+  try {
+    await fs.access(LINKS_FILE_PATH);
+  } catch {
+    await fs.writeFile(LINKS_FILE_PATH, DEFAULT_LINKS_CONTENT, 'utf-8');
+    console.log('Created default links.json file');
+  }
+}
+
+// Validate and sanitize the links payload (see server/linkValidation.js).
+
+// Get the link categories
+app.get('/api/links', fileOperationLimiter, async (req, res) => {
+  try {
+    await ensureLinksFileExists();
+    const content = await fs.readFile(LINKS_FILE_PATH, 'utf-8');
+
+    let categories;
+    try {
+      categories = JSON.parse(content);
+    } catch {
+      categories = [];
+    }
+    if (!Array.isArray(categories)) {
+      categories = [];
+    }
+
+    res.json({ categories });
+  } catch (error) {
+    console.error('Error reading links file:', error);
+    res.status(500).json({ error: 'Failed to read links file' });
+  }
+});
+
+// Update the link categories
+app.post('/api/links', fileOperationLimiter, async (req, res) => {
+  try {
+    const validation = sanitizeLinkCategories(req.body.categories);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const serialized = JSON.stringify(validation.value, null, 2);
+
+    // Security: limit content size to prevent DoS
+    if (serialized.length > MAX_TODO_SIZE) {
+      return res.status(413).json({ error: `Content too large. Maximum size is ${MAX_TODO_SIZE / (1024 * 1024)}MB` });
+    }
+
+    await fs.writeFile(LINKS_FILE_PATH, serialized, 'utf-8');
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error writing links file:', error);
+    res.status(500).json({ error: 'Failed to write links file' });
   }
 });
 
@@ -206,6 +299,65 @@ app.get('/api/image', fileOperationLimiter, async (req, res) => {
   }
 });
 
+// Only files referenced by a saved file:// link may be served, so that this
+// endpoint cannot be used to read arbitrary local files.
+async function isPathReferencedByLink(normalizedPath) {
+  try {
+    const content = await fs.readFile(LINKS_FILE_PATH, 'utf-8');
+    return isPathReferencedByCategories(JSON.parse(content), normalizedPath);
+  } catch {
+    return false;
+  }
+}
+
+// Serve a local file referenced by a saved file:// link (browsers block
+// navigating to file:// URLs directly from an http page)
+app.get('/api/local-file', fileOperationLimiter, async (req, res) => {
+  try {
+    const { path: requestedPath } = req.query;
+
+    if (!requestedPath || typeof requestedPath !== 'string') {
+      return res.status(400).json({ error: 'File path is required' });
+    }
+
+    // Validate path security (prefix allow-list, no traversal, no sensitive dirs)
+    const pathValidation = validatePath(requestedPath);
+    if (!pathValidation.isValid) {
+      return res.status(403).json({ error: pathValidation.error });
+    }
+
+    const normalizedPath = pathValidation.normalizedPath;
+
+    // Only serve files the user has explicitly saved as a file:// link
+    if (!(await isPathReferencedByLink(normalizedPath))) {
+      return res.status(403).json({ error: 'File is not a saved link' });
+    }
+
+    let stats;
+    try {
+      stats = await fs.stat(normalizedPath);
+    } catch {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    if (!stats.isFile()) {
+      return res.status(400).json({ error: 'Path is not a file' });
+    }
+    if (stats.size > MAX_LOCAL_FILE_SIZE) {
+      return res.status(413).json({ error: 'File too large' });
+    }
+
+    const fileBuffer = await fs.readFile(normalizedPath);
+
+    res.setHeader('Content-Type', getLocalFileContentType(normalizedPath));
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(fileBuffer);
+  } catch (error) {
+    console.error('Error serving local file:', error);
+    res.status(500).json({ error: 'Failed to serve file' });
+  }
+});
+
 // WebSocket-like endpoint for file change notifications
 let changeClients = [];
 
@@ -260,6 +412,7 @@ async function startServer() {
   }
 
   await ensureFileExists();
+  await ensureLinksFileExists();
 
   // Global error handler - must be defined after all routes
   app.use((err, req, res, next) => {
