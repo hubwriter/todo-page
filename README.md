@@ -1,6 +1,6 @@
 <!-- Don't panic! Copilot was here. -->
 <!-- Oh sit down. Oh sit down. Sit down next to me! -->
-<!-- Last edited by GitHub Copilot on 2026-07-01. -->
+<!-- Last edited by GitHub Copilot on 2026-07-28. -->
 # Markdown-driven to-do list web app
 
 A Vue 3 + Vite web application for managing to-do lists with markdown file synchronization. Edit tasks in the browser or directly in the markdown file - changes are reflected instantly in both places. It also includes a **Links** tab for keeping categorised bookmarks.
@@ -13,11 +13,13 @@ A Vue 3 + Vite web application for managing to-do lists with markdown file synch
 - ✅ **Three Task Categories**: Priority, Other, and Done
 - ✅ **Quick Add**: Add tasks to Priority list with keyboard shortcuts (Cmd+Enter to submit)
 - ✅ **Context Menu**: Double-click any task to Edit, Move, or Delete
+- ✅ **Command-click to Edit**: Command-click (Ctrl-click on Windows/Linux) a task to open it directly in the input field
 - ✅ **Smart Editing**: Edit tasks in-place and they return to their original position
 - ✅ **Drag and Drop**: Reorder tasks within Priority and Other lists
 - ✅ **Complete Tasks**: Check items to move them to Done with date stamps
 - ✅ **Move Between Lists**: Easily move tasks between Priority and Other
 - ✅ **Live Sync**: External changes to the markdown file are automatically reflected in the app
+- ✅ **Backups**: Every change is backed up automatically; the last 10 backups can be previewed and restored from the Backups tab
 - ✅ **Markdown Editor**: Built-in editor to directly edit the markdown content
 - ✅ **Markdown Support**: Tasks can include links, formatting, and multi-line content
 - ✅ **Links Tab**: Keep categorised bookmarks (Category, URL, Description) with URL validation, drag-and-drop between categories, and edit/delete
@@ -165,12 +167,18 @@ Double-click any task to open a quick-action menu:
 
 ### Editing tasks
 
-1. Double-click a task and select "Edit"
-2. The task text appears in the input field at the top
-3. Make your changes
-4. Click "Save" or press **Cmd+Enter**
-5. The task returns to its original position in the list
-6. Click "Cancel" to discard changes and restore the original task
+There are two ways to open a task for editing:
+
+- Double-click a task and select "Edit", **or**
+- Command-click the task (hold **Cmd** on macOS, or **Ctrl** on Windows/Linux, and click the task)
+
+Then:
+
+1. The task text appears in the input field at the top
+2. Make your changes
+3. Click "Save" or press **Cmd+Enter**
+4. The task returns to its original position in the list
+5. Click "Cancel" to discard changes and restore the original task
 
 ### Reordering tasks
 
@@ -207,6 +215,18 @@ Double-click any task to open a quick-action menu:
 1. Open the markdown file in any text editor
 2. Make changes and save
 3. The web app automatically refreshes to show your changes
+
+### Backups
+
+Every time your tasks change, a backup of the markdown file is saved
+automatically alongside `todo.md`, named `todo-backup-YYYYMMDDTHHMMSS.md` (for
+example `todo-backup-20260728T143052.md`). Only the 10 most recent backups are
+kept — the oldest is deleted when a new one is added.
+
+1. Switch to the **Backups** tab to see the 10 most recent backups, most recent first
+2. Click a backup to preview it on the **Tasks** tab (read-only, with no input box)
+3. A message explains that restoring will lose any changes made since the backup was taken
+4. Click **Use this backup** to replace your current tasks with the backup, or **Cancel** to go back
 
 ### Managing links
 
@@ -274,16 +294,18 @@ Links are stored in a JSON file (default: `links.json`, in the same folder as th
 ```
 todo-page/
 ├── src/
-│   ├── App.vue                 # Main component (tabs: Tasks, Markdown, Notes, Links)
+│   ├── App.vue                 # Main component (tabs: Tasks, Markdown, About, Backups, Links)
 │   ├── main.js                 # Application entry point
 │   ├── style.css               # Global styles
 │   ├── constants.js            # Shared constants and limits
 │   ├── api/
 │   │   ├── todoApi.js          # Task load/save + file-watch client
+│   │   ├── backupsApi.js       # Backups list/read client
 │   │   └── linksApi.js         # Links load/save client
 │   ├── components/
 │   │   ├── TaskList.vue        # Task list rendering
 │   │   ├── ContextMenu.vue     # Task context menu
+│   │   ├── BackupsTab.vue      # Backups tab (list of recent backups)
 │   │   ├── LinksTab.vue        # Links tab (form, categories, menu)
 │   │   ├── LinkList.vue        # A category's bullet list of links
 │   │   └── LinkContextMenu.vue # Link edit/delete menu
@@ -295,9 +317,11 @@ todo-page/
 │   └── utils/
 │       ├── markdownUtils.js    # Markdown parse/generate + sanitise
 │       ├── taskUtils.js        # Task list helpers (drag position, etc.)
+│       ├── backupUtils.js      # Backup filename format/parse helpers
 │       └── linkUtils.js        # URL validation/normalisation + ids
-├── server.js                   # Express backend (todo + links APIs)
+├── server.js                   # Express backend (todo + backups + links APIs)
 ├── server/
+│   ├── backups.js              # Backup create/list/read/prune helpers
 │   └── pathUtils.js            # Path validation helpers
 ├── index.html                  # HTML template
 ├── vite.config.js              # Vite configuration

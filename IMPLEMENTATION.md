@@ -1,3 +1,5 @@
+<!-- Oh sit down. Oh sit down. Sit down next to me! -->
+<!-- Last edited by GitHub Copilot on 2026-07-28. -->
 # Implementation Guide
 
 ## Architecture
@@ -144,10 +146,22 @@ Core reactive state objects:
 - `markdownContent`: Raw markdown content for editor tab
 
 ### Backend (Express.js)
-**server.js** provides three API endpoints:
+**server.js** provides these API endpoints:
 - `GET /api/todo` - Retrieve markdown file contents
-- `POST /api/todo` - Persist markdown changes to file
+- `POST /api/todo` - Persist markdown changes to file (writes a timestamped backup whenever the content changes)
 - `GET /api/todo/watch` - Server-Sent Events stream for file changes
+- `GET /api/backups` - List the 10 most recent backups (newest first)
+- `GET /api/backups/:filename` - Retrieve the contents of a single backup
+
+### Backups System
+- On every `POST /api/todo` where the content differs from the file on disk, a
+  backup is written alongside `todo.md` as `todo-backup-YYYYMMDDTHHMMSS.md`
+  (local time).
+- Only the 10 most recent backups are kept; older ones are pruned automatically.
+- Backup logic lives in `server/backups.js`; the shared filename format/parse
+  helpers are in `src/utils/backupUtils.js` (used by both server and client).
+- The **Backups** tab lists the backups. Selecting one previews it read-only in
+  the Tasks tab, with the option to restore it (which replaces `todo.md`).
 
 **Middleware stack**:
 - Rate limiting: 60 requests per minute per IP
