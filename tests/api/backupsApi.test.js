@@ -28,6 +28,24 @@ describe('loadBackups', () => {
     await expect(loadBackups()).resolves.toEqual([]);
   });
 
+  it('filters out malformed backup entries', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        backups: [
+          { filename: 'todo-backup-20260728T120000.md', timestamp: '2026-07-28T12:00:00.000Z' },
+          { filename: 'missing-timestamp.md' },
+          { timestamp: '2026-07-28T12:01:00.000Z' },
+          null
+        ]
+      })
+    })));
+
+    await expect(loadBackups()).resolves.toEqual([
+      { filename: 'todo-backup-20260728T120000.md', timestamp: '2026-07-28T12:00:00.000Z' }
+    ]);
+  });
+
   it('throws on a non-ok response', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false })));
     await expect(loadBackups()).rejects.toThrow('Failed to load backups');

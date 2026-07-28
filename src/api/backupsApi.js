@@ -11,7 +11,14 @@ export async function loadBackups() {
     throw new Error('Failed to load backups');
   }
   const data = await response.json();
-  return Array.isArray(data.backups) ? data.backups : [];
+  const backups = Array.isArray(data.backups) ? data.backups : [];
+  return backups.filter((backup) =>
+    backup &&
+    typeof backup.filename === 'string' &&
+    backup.filename.length > 0 &&
+    typeof backup.timestamp === 'string' &&
+    backup.timestamp.length > 0
+  );
 }
 
 /**
