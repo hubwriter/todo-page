@@ -173,7 +173,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { marked } from 'marked';
 import TaskList from './components/TaskList.vue';
 import ContextMenu from './components/ContextMenu.vue';
@@ -243,6 +243,48 @@ const taskInputPlaceholder = computed(() => {
     ? 'Editing task... (Cmd+Enter or Ctrl+S to save to original position)'
     : 'Add new task to Priority... (Cmd+Enter or Ctrl+S to submit)';
 });
+
+// Minimum (and default) number of visible lines for the task input box.
+const TASK_INPUT_MIN_LINES = 3;
+
+/**
+ * Auto-size the task input textarea.
+ *
+ * The box has a minimum/default depth of 3 lines and grows one line at a time
+ * so that there is always an empty line below the last line of text, up to a
+ * maximum of half the visible browser page height. Beyond that cap the box
+ * stops growing and becomes scrollable.
+ */
+function adjustTaskInputHeight() {
+  const el = taskInputRef.value;
+  if (!el) return;
+
+  const style = window.getComputedStyle(el);
+  const lineHeight = parseFloat(style.lineHeight);
+  if (!lineHeight) return; // Guard against non-numeric line-height ("normal")
+
+  const paddingTop = parseFloat(style.paddingTop) || 0;
+  const paddingBottom = parseFloat(style.paddingBottom) || 0;
+  const borderTop = parseFloat(style.borderTopWidth) || 0;
+  const borderBottom = parseFloat(style.borderBottomWidth) || 0;
+  const verticalExtra = paddingTop + paddingBottom + borderTop + borderBottom;
+
+  // Measure the natural content height (scrollHeight includes vertical padding).
+  el.style.height = 'auto';
+  const contentHeight = el.scrollHeight - paddingTop - paddingBottom;
+  const contentLines = Math.max(1, Math.round(contentHeight / lineHeight));
+
+  // Always keep an empty line below the last line of text, respecting the minimum.
+  const desiredLines = Math.max(TASK_INPUT_MIN_LINES, contentLines + 1);
+
+  // Cap at half the visible page height.
+  const maxHeight = window.innerHeight / 2;
+  const maxLines = Math.max(1, Math.floor((maxHeight - verticalExtra) / lineHeight));
+
+  const finalLines = Math.min(desiredLines, maxLines);
+  el.style.height = `${finalLines * lineHeight + verticalExtra}px`;
+  el.style.overflowY = desiredLines > maxLines ? 'auto' : 'hidden';
+}
 
 // Wrapper for saveTasks that prevents file watcher reload
 async function saveTasksWithoutReload() {
@@ -415,6 +457,20 @@ watch([priorityTasks, otherTasks, doneTasks], () => {
   }
 }, { deep: true });
 
+// Keep the task input sized to its content whenever the text changes
+// (typing, starting an edit, or resetting after save/cancel).
+watch(newTask, () => {
+  nextTick(adjustTaskInputHeight);
+});
+
+// Recompute the task input size when returning to the Tasks tab, since the
+// textarea can't be measured reliably while its panel is hidden.
+watch(activeTab, (tab) => {
+  if (tab === 'tasks') {
+    nextTick(adjustTaskInputHeight);
+  }
+});
+
 // Keep the URL hash in sync when the active tab changes
 watch(activeTab, (tab) => {
   const hash = `#${tabToHash(tab)}`;
@@ -449,6 +505,10 @@ onMounted(async () => {
 
   window.addEventListener('keydown', handleEscKey);
   window.addEventListener('hashchange', handleHashChange);
+  window.addEventListener('resize', adjustTaskInputHeight);
+
+  // Size the task input to its default (3 lines) once the DOM is ready.
+  nextTick(adjustTaskInputHeight);
 
   // Auto-focus the task input on initial load
   // FR-001: Auto-focus on initial load
@@ -469,6 +529,7 @@ onUnmounted(() => {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   window.removeEventListener('keydown', handleEscKey);
   window.removeEventListener('hashchange', handleHashChange);
+  window.removeEventListener('resize', adjustTaskInputHeight);
 });
 </script>
 
@@ -523,8 +584,9 @@ onUnmounted(() => {
 
 .add-task textarea {
   flex: 1;
-  resize: vertical;
-  min-height: 60px;
+  resize: none;
+  line-height: 1.5;
+  overflow-y: hidden;
   font-family: inherit;
 }
 
