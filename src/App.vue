@@ -51,6 +51,7 @@
           v-model="newTask"
           :placeholder="taskInputPlaceholder"
           :aria-label="editState.isEditing ? 'Edit task' : 'New task'"
+          rows="3"
           @keydown="handleKeyDown"
         ></textarea>
         <div class="button-group">
