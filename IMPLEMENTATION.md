@@ -1,4 +1,3 @@
-<!-- Oh sit down. Oh sit down. Sit down next to me! -->
 <!-- Last edited by GitHub Copilot on 2026-07-28. -->
 # Implementation Guide
 
