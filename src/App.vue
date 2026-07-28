@@ -508,6 +508,11 @@ function handleKeyDown(event) {
     event.preventDefault();
     handleAddOrSave();
   }
+  // Esc cancels, exactly like clicking the Cancel button
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    handleCancel();
+  }
 }
 
 async function handleCheckboxChange(listType, index) {

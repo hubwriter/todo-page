@@ -21,7 +21,7 @@ A Vue 3 + Vite web application for managing to-do lists with markdown file synch
 - ✅ **Markdown Editor**: Built-in editor to directly edit the markdown content
 - ✅ **Markdown Support**: Tasks can include links, formatting, and multi-line content
 - ✅ **Links Tab**: Keep categorised bookmarks (Category, URL, Description) with URL validation, drag-and-drop between categories, and edit/delete
-- ✅ **Accessible**: Keyboard navigation, ESC to dismiss menus, screen reader support
+- ✅ **Accessible**: Keyboard navigation, ESC to dismiss menus or cancel an edit, screen reader support
 - ✅ **Responsive**: Works on desktop and mobile devices
 
 ## Getting started
@@ -46,7 +46,7 @@ npm install
 
 ### Configuration
 
-The app stores tasks in a markdown file and links in a JSON file. There are three ways to configure the file locations (in order of priority):
+The app stores tasks in a markdown file and links in a JSON file. There are three ways to configure the file locations. When more than one is set, they take precedence in this order: **environment variable → `config.json` → built-in default**.
 
 #### Option 1: Configuration file (recommended)
 
@@ -176,7 +176,7 @@ Then:
 2. Make your changes
 3. Click "Save" or press **Cmd+Enter**
 4. The task returns to its original position in the list
-5. Click "Cancel" to discard changes and restore the original task
+5. Click "Cancel" — or press **Esc** while the cursor is in the input field — to discard changes and restore the original task
 
 ### Reordering tasks
 
