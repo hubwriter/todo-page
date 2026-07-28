@@ -6,6 +6,7 @@ describe('tabToHash', () => {
     expect(tabToHash('tasks')).toBe('tasks');
     expect(tabToHash('editor')).toBe('markdown');
     expect(tabToHash('notes')).toBe('notes');
+    expect(tabToHash('backups')).toBe('backups');
     expect(tabToHash('links')).toBe('links');
   });
 
@@ -22,6 +23,7 @@ describe('hashToTab', () => {
     expect(hashToTab('#links')).toBe('links');
     expect(hashToTab('#tasks')).toBe('tasks');
     expect(hashToTab('#notes')).toBe('notes');
+    expect(hashToTab('#backups')).toBe('backups');
   });
 
   it('returns null for unknown or empty hashes', () => {

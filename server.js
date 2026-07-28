@@ -22,6 +22,7 @@ import {
 import { validatePath, validateFileExtension } from './server/pathUtils.js';
 import { sanitizeLinkCategories } from './server/linkValidation.js';
 import { isPathReferencedByCategories, getLocalFileContentType } from './server/localFile.js';
+import { createBackup, listBackups, readBackup } from './server/backups.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -177,11 +178,53 @@ app.post('/api/todo', fileOperationLimiter, async (req, res) => {
       return res.status(413).json({ error: `Content too large. Maximum size is ${MAX_TODO_SIZE / (1024 * 1024)}MB` });
     }
 
+    // Take a backup whenever the content actually changes, so the Backups tab
+    // reflects each distinct saved state. Backup failures must not block saving.
+    let previousContent = null;
+    try {
+      previousContent = await fs.readFile(TODO_FILE_PATH, 'utf-8');
+    } catch {
+      previousContent = null;
+    }
+    if (previousContent !== content) {
+      try {
+        await createBackup(TODO_FILE_PATH, content);
+      } catch (backupError) {
+        console.error('Error creating backup:', backupError);
+      }
+    }
+
     await fs.writeFile(TODO_FILE_PATH, content, 'utf-8');
     res.json({ success: true });
   } catch (error) {
     console.error('Error writing file:', error);
     res.status(500).json({ error: 'Failed to write todo file' });
+  }
+});
+
+// List the most recent backups (newest first)
+app.get('/api/backups', fileOperationLimiter, async (req, res) => {
+  try {
+    const backups = await listBackups(TODO_FILE_PATH);
+    res.json({ backups });
+  } catch (error) {
+    console.error('Error listing backups:', error);
+    res.status(500).json({ error: 'Failed to list backups' });
+  }
+});
+
+// Get the content of a single backup file
+app.get('/api/backups/:filename', fileOperationLimiter, async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const content = await readBackup(TODO_FILE_PATH, filename);
+    if (content === null) {
+      return res.status(404).json({ error: 'Backup not found' });
+    }
+    res.json({ filename, content });
+  } catch (error) {
+    console.error('Error reading backup:', error);
+    res.status(500).json({ error: 'Failed to read backup' });
   }
 });
 

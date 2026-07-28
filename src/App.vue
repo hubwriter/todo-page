@@ -29,7 +29,16 @@
         :aria-selected="activeTab === 'notes'"
         aria-controls="notes-panel"
       >
-        Notes
+        About
+      </button>
+      <button
+        @click="activeTab = 'backups'"
+        :class="{ active: activeTab === 'backups' }"
+        role="tab"
+        :aria-selected="activeTab === 'backups'"
+        aria-controls="backups-panel"
+      >
+        Backups
       </button>
       <button
         @click="activeTab = 'links'"
@@ -44,6 +53,46 @@
 
     <!-- Tasks Tab -->
     <div v-show="activeTab === 'tasks'" id="tasks-panel" role="tabpanel">
+      <!-- Backup preview: read-only view of a selected backup -->
+      <template v-if="backupPreview">
+        <div class="backup-banner" role="alert">
+          <p>
+            You are viewing a <strong>backup</strong> from
+            <strong>{{ backupPreviewLabel }}</strong>. This is read-only.
+          </p>
+          <p>
+            Using this backup will replace your current tasks and
+            <strong>lose any changes made since this backup was taken</strong>.
+          </p>
+          <div class="button-group">
+            <button
+              @click="handleUseBackup"
+              class="btn-primary"
+              aria-label="Use this backup"
+            >
+              Use this backup
+            </button>
+            <button
+              @click="handleCancelBackup"
+              class="btn-secondary"
+              aria-label="Cancel backup preview"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <div class="error" v-if="error" role="alert">{{ error }}</div>
+
+        <div class="lists-container">
+          <TaskList list-type="Priority" :tasks="backupPreview.priority" :read-only="true" />
+          <TaskList list-type="Other" :tasks="backupPreview.other" :read-only="true" />
+          <TaskList list-type="Done" :tasks="backupPreview.done" :read-only="true" />
+        </div>
+      </template>
+
+      <!-- Normal (editable) tasks view -->
+      <template v-else>
       <!-- Add/Edit Task Form -->
       <div class="add-task">
         <textarea
@@ -83,6 +132,7 @@
           @dragstart="onDragStart"
           @drop="onDrop"
           @show-context-menu="handleShowContextMenu"
+          @edit-task="handleEditTask"
           @checkbox-change="handleCheckboxChange"
         />
 
@@ -92,6 +142,7 @@
           @dragstart="onDragStart"
           @drop="onDrop"
           @show-context-menu="handleShowContextMenu"
+          @edit-task="handleEditTask"
           @checkbox-change="handleCheckboxChange"
         />
 
@@ -101,6 +152,7 @@
           @dragstart="onDragStart"
           @drop="onDrop"
           @show-context-menu="handleShowContextMenu"
+          @edit-task="handleEditTask"
           @checkbox-change="handleCheckboxChange"
         />
       </div>
@@ -117,6 +169,7 @@
         @move-to-priority="handleMoveToPriority"
         @delete="handleDelete"
       />
+      </template>
     </div>
 
     <!-- Markdown Editor Tab -->
@@ -135,34 +188,129 @@
       <div class="notes-content">
         <h2>About</h2>
 
-        <h3>Source Files</h3>
-        <p>The tasks (shown on the Tasks and Markdown tabs) are stored in:</p>
-        <p><code>/Users/alistair/work-stuff/tech-writing/todo.md</code></p>
-        <p>To edit this file <a :href="`vscode://file/Users/alistair/work-stuff/tech-writing/todo.md`">click here</a> or press <kbd>control</kbd>+<kbd>command</kbd>+<kbd>-</kbd></p>
-        <p>The links (shown on the Links tab) are stored as JSON in:</p>
-        <p><code>/Users/alistair/work-stuff/tech-writing/links.json</code></p>
-        <p>This file lives in the same folder as the todo file. To edit it <a :href="`vscode://file/Users/alistair/work-stuff/tech-writing/links.json`">click here</a>.</p>
+        <p>
+          This is a personal to-do app for keeping track of tasks and useful
+          links. Your tasks are stored in an ordinary Markdown file on your
+          computer, so you can read and edit them either through this app or in
+          any text editor. Everything you change is saved automatically &mdash;
+          there is no "save" button to remember.
+        </p>
 
-        <h3>Project Information</h3>
+        <h3>The tabs</h3>
+        <p>The app is organised into five tabs, shown across the top of the page:</p>
+        <ul>
+          <li><strong>Tasks</strong> &ndash; your to-do lists, and the main place you work.</li>
+          <li><strong>Markdown</strong> &ndash; the raw text behind your tasks, if you prefer to edit it directly.</li>
+          <li><strong>About</strong> &ndash; this page.</li>
+          <li><strong>Backups</strong> &ndash; automatic snapshots of your tasks that you can restore.</li>
+          <li><strong>Links</strong> &ndash; a categorised list of links you want to keep handy.</li>
+        </ul>
+        <p>
+          The tab you are on is remembered in the page address, so you can
+          bookmark a particular tab or reload the page without losing your place.
+        </p>
+
+        <h3>Tasks tab</h3>
+        <p>Your tasks are split across three lists:</p>
+        <ul>
+          <li><strong>Priority</strong> &ndash; the things you want to focus on.</li>
+          <li><strong>Other</strong> &ndash; everything else that still needs doing.</li>
+          <li><strong>Done</strong> &ndash; completed tasks, each stamped with the date it was finished.</li>
+        </ul>
+
+        <p><strong>Adding a task.</strong> Type into the box at the top of the tab and
+          click <em>Add</em> (or press the keyboard shortcut shown in the box). New
+          tasks are added to the Priority list. A task can span several lines.</p>
+
+        <p><strong>Editing a task.</strong> There are two ways to edit an existing task:</p>
+        <ul>
+          <li>Hold <kbd>command</kbd> (or <kbd>Ctrl</kbd>) and click the task, or</li>
+          <li>Double-click the task and choose <em>Edit</em> from the menu.</li>
+        </ul>
+        <p>Either way the task is loaded back into the box at the top, where you
+          can change it and click <em>Save</em>, or click <em>Cancel</em> to leave it unchanged.</p>
+
+        <p><strong>The task menu.</strong> Double-click any task to open a menu with these options:</p>
+        <ul>
+          <li><strong>Edit</strong> &ndash; load the task into the box for editing.</li>
+          <li><strong>Move to "Other"</strong> / <strong>Move to "Priority"</strong> &ndash; move the task between those two lists.</li>
+          <li><strong>Delete</strong> &ndash; remove the task.</li>
+        </ul>
+
+        <p><strong>Marking a task done.</strong> Tick the checkbox next to a task to move
+          it to the Done list (today's date is added automatically). Un-ticking a
+          task in the Done list moves it back and removes the date.</p>
+
+        <p><strong>Reordering and moving.</strong> Drag a task up or down to reorder it, or
+          drag it onto another list to move it there.</p>
+
+        <p><strong>Links inside tasks.</strong> You can include Markdown links in a task
+          &mdash; for example <code>[GitHub](https://github.com)</code> &mdash; and they
+          appear as clickable links in the list.</p>
+
+        <h3>Markdown tab</h3>
+        <p>
+          This tab shows the raw Markdown text behind your tasks. If you are
+          comfortable editing text directly you can make changes here, and they
+          are saved automatically and reflected on the Tasks tab. The three lists
+          are simply the <code># Priority</code>, <code># Other</code> and
+          <code># Done</code> headings in this file.
+        </p>
+
+        <h3>Backups tab</h3>
+        <p>
+          Every time your tasks change, the app automatically saves a backup so
+          you can go back to an earlier version. The Backups tab lists the ten
+          most recent backups, newest first, with the date and time each was taken.
+        </p>
+        <p>
+          Click a backup to preview it. The preview opens on the Tasks tab as a
+          read-only view, with a banner explaining that you are looking at a
+          backup. From there you can:
+        </p>
+        <ul>
+          <li><strong>Use this backup</strong> &ndash; replace your current tasks with the backup.
+            Note that this loses any changes you have made since the backup was taken.</li>
+          <li><strong>Cancel</strong> &ndash; leave your current tasks untouched and return to the Backups tab.</li>
+        </ul>
+        <p>
+          Only the ten most recent backups are kept; when a new one is made the
+          oldest is removed automatically.
+        </p>
+
+        <h3>Links tab</h3>
+        <p>
+          The Links tab is a place to store useful links, grouped into categories
+          (for example "GitHub"). For each link you record a category, a URL and a
+          short description. You can add, edit and delete links, expand or collapse
+          the categories, and click a link to open it.
+        </p>
+
+        <h3>Where your files are kept</h3>
+        <p>Your tasks (shown on the Tasks and Markdown tabs) are stored in:</p>
+        <p><code>/Users/alistair/work-stuff/tech-writing/todo.md</code></p>
+        <p>To edit this file directly <a :href="`vscode://file/Users/alistair/work-stuff/tech-writing/todo.md`">click here</a> or press <kbd>control</kbd>+<kbd>command</kbd>+<kbd>-</kbd></p>
+        <p>Backups are saved in the same folder, named
+          <code>todo-backup-<em>DATETIME</em>.md</code> (for example
+          <code>todo-backup-20260728T143052.md</code>).</p>
+        <p>Your links (shown on the Links tab) are stored in the same folder as a JSON file:</p>
+        <p><code>/Users/alistair/work-stuff/tech-writing/links.json</code></p>
+        <p>To edit it directly <a :href="`vscode://file/Users/alistair/work-stuff/tech-writing/links.json`">click here</a>.</p>
+        <p>
+          Because the app watches these files, any edits you make outside the app
+          (in a text editor, for instance) appear here automatically, and your
+          edits in the app are written straight back to the same files.
+        </p>
+
+        <h3>Project information</h3>
         <p>Code repository: <a href="https://github.com/hubwriter/todo-page" target="_blank" rel="noopener noreferrer">https://github.com/hubwriter/todo-page</a></p>
         <p>Created using Copilot Agent mode in VS Code on 16 October 2025.</p>
-
-        <h3>Technical Overview</h3>
-        <p><strong>Technologies:</strong></p>
-        <ul>
-          <li><strong>Frontend:</strong> Vue 3 (Composition API), Vite</li>
-          <li><strong>Backend:</strong> Node.js, Express</li>
-          <li><strong>Markdown:</strong> Marked.js for rendering</li>
-          <li><strong>Storage:</strong> Tasks in a markdown file (with file-watching); links in a JSON file</li>
-        </ul>
-
-        <p><strong>Deployment:</strong></p>
-        <ul>
-          <li>Server runs on port 3000 (integrated Express + Vite)</li>
-          <li>Auto-starts on login via macOS LaunchAgent (<code>com.user.todo-app</code>)</li>
-          <li>Configuration via <code>config.json</code> in project root</li>
-        </ul>
       </div>
+    </div>
+
+    <!-- Backups Tab -->
+    <div v-show="activeTab === 'backups'" id="backups-panel" role="tabpanel">
+      <BackupsTab :active="activeTab === 'backups'" @view-backup="handleViewBackup" />
     </div>
 
     <!-- Links Tab -->
@@ -178,11 +326,14 @@ import { marked } from 'marked';
 import TaskList from './components/TaskList.vue';
 import ContextMenu from './components/ContextMenu.vue';
 import LinksTab from './components/LinksTab.vue';
+import BackupsTab from './components/BackupsTab.vue';
 import { useTasks } from './composables/useTasks.js';
 import { useContextMenu } from './composables/useContextMenu.js';
 import { useTaskEditor } from './composables/useTaskEditor.js';
 import { setupFileWatcher, saveTodoContent } from './api/todoApi.js';
-import { generateMarkdownFromTasks, removeDateFromTask } from './utils/markdownUtils.js';
+import { loadBackupContent } from './api/backupsApi.js';
+import { generateMarkdownFromTasks, removeDateFromTask, parseMarkdownToTasks } from './utils/markdownUtils.js';
+import { parseBackupTimestamp } from './utils/backupUtils.js';
 import { calculateDropPosition, getTaskList } from './utils/taskUtils.js';
 import { tabToHash, hashToTab, getTabFromHash } from './utils/tabRouting.js';
 import { AUTO_SAVE_DELAY_MS } from './constants.js';
@@ -196,6 +347,7 @@ marked.setOptions({
 // State
 const activeTab = ref(getTabFromHash(window.location.hash));
 const markdownContent = ref('');
+const backupPreview = ref(null); // { filename, timestamp, content, priority, other, done } when previewing a backup
 const draggedItem = ref(null);
 const isSavingLocally = ref(false); // Flag to prevent file watcher reload during our saves
 const taskInputRef = ref(null); // Reference to the task input textarea
@@ -237,6 +389,12 @@ const {
 
 // Computed
 const editState = computed(() => getEditState());
+
+const backupPreviewLabel = computed(() => {
+  if (!backupPreview.value) return '';
+  const date = parseBackupTimestamp(backupPreview.value.filename);
+  return date ? date.toLocaleString() : backupPreview.value.filename;
+});
 
 const taskInputPlaceholder = computed(() => {
   return editState.value.isEditing
@@ -397,7 +555,15 @@ function handleShowContextMenu(event, listType, index, taskText) {
 
 async function handleEditFromMenu() {
   const { listType, taskIndex, taskText } = getMenuContext();
+  closeContextMenu();
+  await editTaskInTextBox(listType, taskIndex, taskText);
+}
 
+async function handleEditTask(listType, index, taskText) {
+  await editTaskInTextBox(listType, index, taskText);
+}
+
+async function editTaskInTextBox(listType, taskIndex, taskText) {
   // Remove task from list
   const lists = getTaskLists();
   const sourceList = getTaskList(listType, lists);
@@ -405,7 +571,6 @@ async function handleEditFromMenu() {
 
   // Start editing
   startEdit(listType, taskIndex, taskText);
-  closeContextMenu();
 
   // Save without triggering a reload
   await saveTasksWithoutReload();
@@ -429,6 +594,56 @@ async function handleMoveToPriority() {
   closeContextMenu();
   await moveTaskBetweenSections('Other', 'Priority', taskIndex, 0);
   scrollToTask('Priority', 0);
+}
+
+// Backup preview handlers
+async function handleViewBackup(filename) {
+  try {
+    error.value = '';
+    const content = await loadBackupContent(filename);
+    const parsed = parseMarkdownToTasks(content);
+
+    // Cancel any in-progress edit before entering read-only preview mode.
+    if (editState.value.isEditing) cancelEdit();
+
+    backupPreview.value = {
+      filename,
+      content,
+      priority: parsed.priority,
+      other: parsed.other,
+      done: parsed.done
+    };
+    activeTab.value = 'tasks';
+  } catch (err) {
+    error.value = `Error loading backup: ${err.message}`;
+    console.error('Error loading backup:', err);
+  }
+}
+
+async function handleUseBackup() {
+  if (!backupPreview.value) return;
+
+  isSavingLocally.value = true;
+  try {
+    error.value = '';
+    await saveTodoContent(backupPreview.value.content);
+    // Return to the normal (editable) view immediately.
+    backupPreview.value = null;
+    // Give the file watcher event time to arrive and be ignored, then reload
+    // so the live task lists reflect the restored content.
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await loadTasks();
+  } catch (err) {
+    error.value = `Error restoring backup: ${err.message}`;
+    console.error('Error restoring backup:', err);
+  } finally {
+    isSavingLocally.value = false;
+  }
+}
+
+function handleCancelBackup() {
+  backupPreview.value = null;
+  activeTab.value = 'backups';
 }
 
 // Markdown Editor
@@ -601,6 +816,25 @@ onUnmounted(() => {
   margin-bottom: 0.8rem;
   background-color: rgba(255, 68, 68, 0.1);
   border-radius: 4px;
+}
+
+.backup-banner {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #ffd27a;
+  border-radius: 6px;
+  background-color: #fff8e6;
+  color: #5c4400;
+}
+
+.backup-banner p {
+  margin: 0 0 0.5rem;
+}
+
+.backup-banner .button-group {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
 }
 
 .lists-container {

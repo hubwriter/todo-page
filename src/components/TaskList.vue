@@ -9,16 +9,18 @@
       <li
         v-for="(task, index) in tasks"
         :key="`${listType.toLowerCase()}-${task}-${index}`"
-        :draggable="true"
-        @dragstart="$emit('dragstart', $event, listType, index)"
-        @dblclick="$emit('show-context-menu', $event, listType, index, task)"
+        :draggable="!readOnly"
+        @dragstart="handleDragStart($event, index)"
+        @dblclick="handleDblClick($event, index, task)"
+        @click="handleClick($event, index, task)"
         class="task-item"
-        :class="{ done: listType === 'Done' }"
+        :class="{ done: listType === 'Done', 'read-only': readOnly }"
       >
         <input
           type="checkbox"
           :id="`${listType.toLowerCase()}-${index}`"
           :checked="listType === 'Done'"
+          :disabled="readOnly"
           @change="handleCheckboxChange(index)"
           :aria-label="getCheckboxLabel(task)"
         />
@@ -50,16 +52,42 @@ const props = defineProps({
   tasks: {
     type: Array,
     required: true
+  },
+  readOnly: {
+    type: Boolean,
+    default: false
   }
 });
 
-const emit = defineEmits(['dragstart', 'drop', 'show-context-menu', 'checkbox-change']);
+const emit = defineEmits(['dragstart', 'drop', 'show-context-menu', 'checkbox-change', 'edit-task']);
 
 function handleDrop(event) {
+  if (props.readOnly) return;
   emit('drop', event, props.listType);
 }
 
+function handleDragStart(event, index) {
+  if (props.readOnly) return;
+  emit('dragstart', event, props.listType, index);
+}
+
+function handleDblClick(event, index, task) {
+  if (props.readOnly) return;
+  emit('show-context-menu', event, props.listType, index, task);
+}
+
+function handleClick(event, index, task) {
+  if (props.readOnly) return;
+  // Command-click (or Ctrl-click on non-Mac) opens the task for editing
+  if (event.metaKey || event.ctrlKey) {
+    if (event.target instanceof HTMLInputElement) return;
+    event.preventDefault();
+    emit('edit-task', props.listType, index, task);
+  }
+}
+
 function handleCheckboxChange(index) {
+  if (props.readOnly) return;
   emit('checkbox-change', props.listType, index);
 }
 
@@ -126,6 +154,14 @@ function renderLine(line) {
   cursor: pointer;
   margin-top: 0.25rem;
   flex-shrink: 0;
+}
+
+.task-item.read-only {
+  cursor: default;
+}
+
+.task-item.read-only input[type="checkbox"] {
+  cursor: default;
 }
 
 .task-text {
