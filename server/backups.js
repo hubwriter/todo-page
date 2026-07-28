@@ -4,7 +4,7 @@
 // `todo-backup-YYYYMMDDTHHMMSS.md`. Only the MAX_BACKUPS most recent files are
 // kept on disk; older ones are pruned whenever a new backup is created.
 import fs from 'fs/promises';
-import { dirname, join } from 'path';
+import { dirname, join, resolve, sep } from 'path';
 import {
   backupFileName,
   isBackupFileName,
@@ -105,8 +105,11 @@ export async function readBackup(todoFilePath, filename) {
   if (!isBackupFileName(filename)) return null;
 
   const dir = dirname(todoFilePath);
+  const backupPath = resolve(dir, filename);
+  if (!backupPath.startsWith(`${resolve(dir)}${sep}`)) return null;
+
   try {
-    return await fs.readFile(join(dir, filename), 'utf-8');
+    return await fs.readFile(backupPath, 'utf-8');
   } catch {
     return null;
   }
