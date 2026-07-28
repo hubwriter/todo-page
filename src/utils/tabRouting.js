@@ -1,8 +1,8 @@
 // Mapping between tab names and URL hashes.
 // The Markdown tab uses the 'editor' key internally but the '#markdown' hash.
 
-export const TAB_TO_HASH = { tasks: 'tasks', editor: 'markdown', notes: 'notes', links: 'links' };
-export const HASH_TO_TAB = { tasks: 'tasks', markdown: 'editor', notes: 'notes', links: 'links' };
+export const TAB_TO_HASH = { tasks: 'tasks', editor: 'markdown', notes: 'notes', backups: 'backups', links: 'links' };
+export const HASH_TO_TAB = { tasks: 'tasks', markdown: 'editor', notes: 'notes', backups: 'backups', links: 'links' };
 
 export const DEFAULT_TAB = 'tasks';
 

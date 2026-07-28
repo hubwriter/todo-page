@@ -61,3 +61,6 @@ export const MAX_LINK_DESCRIPTION_LENGTH = 2000;
 
 // Default links file content (empty list of categories)
 export const DEFAULT_LINKS_CONTENT = '[]';
+
+// Backups feature: maximum number of backup files kept on disk.
+export const MAX_BACKUPS = 10;
