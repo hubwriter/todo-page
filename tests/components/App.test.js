@@ -13,6 +13,7 @@ vi.mock('../../src/api/linksApi.js', () => ({
 }));
 
 import App from '../../src/App.vue';
+import { loadTodoContent } from '../../src/api/todoApi.js';
 
 function activeTabText(wrapper) {
   return wrapper.find('.tabs button.active').text();
@@ -53,5 +54,57 @@ describe('App tab hash routing', () => {
     await notesBtn.trigger('click');
     expect(window.location.hash).toBe('#notes');
     wrapper.unmount();
+  });
+});
+
+describe('App Esc cancels in the task text box', () => {
+  beforeEach(() => {
+    window.location.hash = '';
+    loadTodoContent.mockReset();
+    loadTodoContent.mockResolvedValue('# Priority\n\n# Other\n\n# Done\n');
+    // jsdom does not implement scrollIntoView, which the cancel/restore path calls.
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('clears a new task when Esc is pressed in the text box', async () => {
+    const wrapper = mount(App, { attachTo: document.body });
+    await flushPromises();
+
+    const textarea = wrapper.find('.add-task textarea');
+    await textarea.setValue('a half-typed task');
+    expect(textarea.element.value).toBe('a half-typed task');
+
+    await textarea.trigger('keydown', { key: 'Escape' });
+    await flushPromises();
+
+    expect(wrapper.find('.add-task textarea').element.value).toBe('');
+  });
+
+  it('restores the original task and clears the box when Esc is pressed while editing', async () => {
+    vi.useFakeTimers();
+    try {
+      loadTodoContent.mockResolvedValue('# Priority\n\n- [ ] Buy milk\n\n# Other\n\n# Done\n');
+      const wrapper = mount(App, { attachTo: document.body });
+      await vi.runAllTimersAsync();
+
+      // Enter edit mode via the double-click context menu: the task moves into the box.
+      await wrapper.find('li.task-item').trigger('dblclick');
+      await wrapper.find('.context-menu-item').trigger('click');
+      await vi.runAllTimersAsync();
+      const textarea = wrapper.find('.add-task textarea');
+      expect(textarea.element.value).toBe('Buy milk');
+      expect(wrapper.find('.add-task button').text()).toBe('Save');
+
+      // Esc behaves exactly like Cancel: the task is restored and the box cleared.
+      await textarea.trigger('keydown', { key: 'Escape' });
+      await vi.runAllTimersAsync();
+
+      expect(wrapper.find('.add-task textarea').element.value).toBe('');
+      expect(wrapper.find('.add-task button').text()).toBe('Add');
+      expect(wrapper.text()).toContain('Buy milk');
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
