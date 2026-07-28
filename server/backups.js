@@ -73,9 +73,22 @@ export async function pruneBackups(todoFilePath, keep = MAX_BACKUPS) {
  */
 export async function createBackup(todoFilePath, content, now = new Date()) {
   const dir = dirname(todoFilePath);
-  const filename = backupFileName(now);
+  let timestamp = new Date(now.getTime());
+  let filename = backupFileName(timestamp);
 
-  await fs.writeFile(join(dir, filename), content, 'utf-8');
+  while (true) {
+    try {
+      await fs.writeFile(join(dir, filename), content, { encoding: 'utf-8', flag: 'wx' });
+      break;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') {
+        throw error;
+      }
+      timestamp = new Date(timestamp.getTime() + 1000);
+      filename = backupFileName(timestamp);
+    }
+  }
+
   await pruneBackups(todoFilePath);
 
   return filename;

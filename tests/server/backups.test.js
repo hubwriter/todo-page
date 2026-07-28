@@ -31,6 +31,16 @@ describe('server/backups', () => {
     expect(content).toBe('hello');
   });
 
+  it('avoids overwriting when two backups share the same second', async () => {
+    const first = await createBackup(todoPath, 'first', new Date(2026, 6, 28, 14, 30, 52));
+    const second = await createBackup(todoPath, 'second', new Date(2026, 6, 28, 14, 30, 52));
+
+    expect(first).toBe('todo-backup-20260728T143052.md');
+    expect(second).toBe('todo-backup-20260728T143053.md');
+    expect(await fs.readFile(join(dir, first), 'utf-8')).toBe('first');
+    expect(await fs.readFile(join(dir, second), 'utf-8')).toBe('second');
+  });
+
   it('lists backups newest first with ISO timestamps', async () => {
     await createBackup(todoPath, 'a', new Date(2026, 6, 28, 10, 0, 0));
     await createBackup(todoPath, 'b', new Date(2026, 6, 28, 12, 0, 0));
