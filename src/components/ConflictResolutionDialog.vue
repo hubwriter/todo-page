@@ -36,6 +36,7 @@
         :id="resolutionId"
         ref="resolutionField"
         v-model="current.resolution"
+        v-edit-history="historySession"
         rows="8"
         @input="editResolution"
       ></textarea>
@@ -60,6 +61,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { vEditHistory } from '../utils/editHistory.js';
 
 const props = defineProps({
   workflow: {
@@ -77,6 +79,9 @@ const validationError = ref('');
 const replacementConfirmed = ref(false);
 const applying = ref(false);
 const current = computed(() => conflicts.value[index.value]);
+const historySession = computed(() =>
+  `${props.workflow.revision ?? 0}:${current.value?.id ?? ''}`
+);
 const headingId = `conflict-heading-${props.workflow.resource}`;
 const resolutionId = `conflict-resolution-${props.workflow.resource}`;
 

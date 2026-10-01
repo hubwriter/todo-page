@@ -17,6 +17,20 @@ function workflow(overrides = {}) {
 }
 
 describe('ConflictResolutionDialog', () => {
+  it('undoes and redoes edits to the current conflict resolution', async () => {
+    const active = workflow();
+    const wrapper = mount(ConflictResolutionDialog, { props: { workflow: active } });
+    const textarea = wrapper.find('textarea');
+
+    await textarea.setValue('edited resolution');
+    await textarea.trigger('keydown', { key: 'z', metaKey: true });
+    expect(textarea.element.value).toBe('current 1');
+
+    await textarea.trigger('keydown', { key: 'z', metaKey: true, shiftKey: true });
+    expect(textarea.element.value).toBe('edited resolution');
+    wrapper.unmount();
+  });
+
   it('steps through Current, Other, and edited resolutions while retaining decisions', async () => {
     const active = workflow({ updateDraft: vi.fn() });
     const wrapper = mount(ConflictResolutionDialog, { props: { workflow: active }, attachTo: document.body });

@@ -106,7 +106,9 @@ function createHistory(element) {
   listen('cut', () => { group = null; prepare(); }, true);
   listen('pointerdown', () => { group = null; });
   listen('blur', () => { group = null; pending = null; });
-  listen('input', record);
+  // Capture before Vue's v-model input handler can rerender and synchronize the
+  // directive to the new value, which would otherwise erase this history step.
+  listen('input', record, true);
   listen('compositionstart', () => {
     group = null;
     prepare();
