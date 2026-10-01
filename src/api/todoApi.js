@@ -1,36 +1,58 @@
 // API service for todo operations
 import { API_BASE, RECONNECT_DELAY_MS } from '../constants.js';
+import { readApiError, ResourceProtocolError } from './resourceErrors.js';
+
+const OUTDATED_SERVER_MESSAGE = 'The task server returned an outdated response. Restart the app server, then try again. Your edits are still here.';
+
+function readVersionedTodoResponse(payload, operation) {
+  const contentType = typeof payload?.content;
+  const versionType = typeof payload?.version;
+  if (contentType !== 'string' || versionType !== 'string' || !payload.version) {
+    throw new ResourceProtocolError(
+      `Invalid todo ${operation} response: content=${contentType}, version=${versionType}`,
+      OUTDATED_SERVER_MESSAGE,
+      {
+        operation,
+        contentType,
+        versionType,
+        responseKeys: payload && typeof payload === 'object' ? Object.keys(payload) : []
+      }
+    );
+  }
+  return payload;
+}
 
 /**
  * Load todo content from server
- * @returns {Promise<string>} Todo markdown content
+ * @returns {Promise<{content: string, version: string}>}
  */
 export async function loadTodoContent() {
   const response = await fetch(`${API_BASE}/todo`);
   if (!response.ok) {
-    throw new Error('Failed to load tasks');
+    await readApiError(response, 'Failed to load tasks');
   }
-  const data = await response.json();
-  return data.content;
+  return readVersionedTodoResponse(await response.json(), 'load');
 }
 
 /**
  * Save todo content to server
  * @param {string} content - Markdown content to save
- * @returns {Promise<void>}
+ * @param {string} baseVersion
+ * @returns {Promise<{content: string, version: string}>}
  */
-export async function saveTodoContent(content) {
+export async function saveTodoContent(content, baseVersion) {
   const response = await fetch(`${API_BASE}/todo`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, baseVersion }),
   });
 
   if (!response.ok) {
-    throw new Error('Failed to save tasks');
+    await readApiError(response, 'Failed to save tasks');
   }
+  return readVersionedTodoResponse(await response.json(), 'save');
 }
 
 /**
@@ -51,6 +73,12 @@ export function setupFileWatcher(onChangeCallback) {
   let resyncOnReconnect = false;
   let closed = false;
 
+  const resync = () => {
+    if (!resyncOnReconnect || closed) return;
+    resyncOnReconnect = false;
+    onChangeCallback({ resource: null, version: null, resync: true });
+  };
+
   const disconnect = () => {
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
@@ -65,19 +93,25 @@ export function setupFileWatcher(onChangeCallback) {
   const connect = () => {
     if (closed || eventSource || document.hidden) return;
 
-    const source = new EventSource(`${API_BASE}/todo/watch`);
+    const source = new EventSource(`${API_BASE}/watch`);
     eventSource = source;
+
+    source.onopen = () => {
+      if (eventSource !== source) return;
+      resync();
+    };
 
     source.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === 'change') {
-        console.log('File changed externally, reloading...');
-        onChangeCallback();
+      if (data.resource && Object.hasOwn(data, 'version')) {
+        onChangeCallback(data);
       }
     };
 
     source.onerror = (err) => {
+      if (eventSource !== source) return;
       console.error('EventSource error:', err);
+      resyncOnReconnect = true;
       // Release the socket before waiting, so a failed stream never keeps
       // occupying one of the origin's few connection slots.
       source.close();
@@ -97,11 +131,9 @@ export function setupFileWatcher(onChangeCallback) {
       return;
     }
     connect();
-    if (resyncOnReconnect) {
-      resyncOnReconnect = false;
-      // Pick up any change that happened while disconnected.
-      onChangeCallback();
-    }
+    // Preserve immediate visibility resync while onopen handles outage
+    // reconnects where the stream may be unavailable for an extended gap.
+    resync();
   };
 
   document.addEventListener('visibilitychange', handleVisibilityChange);

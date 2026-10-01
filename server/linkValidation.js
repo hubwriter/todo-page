@@ -18,8 +18,10 @@ export function sanitizeLinkCategories(categories, generateId = randomUUID) {
   }
 
   const cleaned = [];
+  const seenIds = new Set();
 
-  for (const category of categories) {
+  for (let categoryIndex = 0; categoryIndex < categories.length; categoryIndex++) {
+    const category = categories[categoryIndex];
     if (!category || typeof category.name !== 'string') {
       return { isValid: false, error: 'Each category must have a name' };
     }
@@ -35,7 +37,8 @@ export function sanitizeLinkCategories(categories, generateId = randomUUID) {
 
     const cleanLinks = [];
 
-    for (const link of category.links) {
+    for (let linkIndex = 0; linkIndex < category.links.length; linkIndex++) {
+      const link = category.links[linkIndex];
       if (!link || typeof link.url !== 'string') {
         return { isValid: false, error: 'Each link must have a URL' };
       }
@@ -51,11 +54,19 @@ export function sanitizeLinkCategories(categories, generateId = randomUUID) {
         return { isValid: false, error: `Link descriptions must be ${MAX_LINK_DESCRIPTION_LENGTH} characters or fewer` };
       }
 
-      const id = (typeof link.id === 'string' && link.id) ? link.id : generateId();
+      const id = (typeof link.id === 'string' && link.id)
+        ? link.id
+        : generateId({ categoryName: name, link, categoryIndex, linkIndex });
+      if (seenIds.has(id)) {
+        return { isValid: false, error: `Duplicate link id: ${id}` };
+      }
+      seenIds.add(id);
       cleanLinks.push({ id, url, description });
     }
 
-    cleaned.push({ name, links: cleanLinks });
+    const existing = cleaned.find((item) => item.name === name);
+    if (existing) existing.links.push(...cleanLinks);
+    else cleaned.push({ name, links: cleanLinks });
   }
 
   return { isValid: true, value: cleaned };

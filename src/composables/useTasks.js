@@ -1,148 +1,220 @@
-// Composable for task management logic
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { loadTodoContent, saveTodoContent } from '../api/todoApi.js';
+import { ConflictError } from '../api/resourceErrors.js';
 import {
   parseMarkdownToTasks,
   generateMarkdownFromTasks,
   addDateToTask,
   removeDateFromTask
 } from '../utils/markdownUtils.js';
+import { mergeMarkdown } from '../utils/markdownMerge.js';
 import { moveTask, getTaskList } from '../utils/taskUtils.js';
+import { useConflictAwareSave } from './useConflictAwareSave.js';
+
+function cloneLists(lists) {
+  return {
+    priority: [...lists.priority],
+    other: [...lists.other],
+    done: [...lists.done],
+    markdownContent: lists.markdownContent,
+    dirty: lists.dirty
+  };
+}
 
 export function useTasks() {
   const priorityTasks = ref([]);
   const otherTasks = ref([]);
   const doneTasks = ref([]);
-  const error = ref('');
+  const markdownContent = ref('');
+  const loadError = ref('');
 
-  /**
-   * Get reactive task lists
-   */
+  const coordinator = useConflictAwareSave({
+    resource: 'todo',
+    loadRemote: loadTodoContent,
+    saveRemote: saveTodoContent,
+    merge: mergeMarkdown,
+    snapshotFromResponse: (response) => response.content,
+    onCandidate: applyContent,
+    onAccepted: applyContent
+  });
+
+  const error = computed({
+    get: () => coordinator.error.value || loadError.value,
+    set: (value) => {
+      loadError.value = value;
+      if (!value) coordinator.error.value = '';
+    }
+  });
+
   const getTaskLists = () => ({
     priority: priorityTasks.value,
     other: otherTasks.value,
     done: doneTasks.value
   });
 
-  /**
-   * Load tasks from server
-   */
-  async function loadTasks() {
+  function applyContent(content) {
+    markdownContent.value = content;
+    const parsed = parseMarkdownToTasks(content);
+    priorityTasks.value = parsed.priority;
+    otherTasks.value = parsed.other;
+    doneTasks.value = parsed.done;
+    return content;
+  }
+
+  function snapshotTasks() {
+    return cloneLists({
+      ...getTaskLists(),
+      markdownContent: markdownContent.value,
+      dirty: coordinator.dirty.value
+    });
+  }
+
+  function restoreTasks(snapshot) {
+    priorityTasks.value = [...snapshot.priority];
+    otherTasks.value = [...snapshot.other];
+    doneTasks.value = [...snapshot.done];
+    markdownContent.value = snapshot.markdownContent;
+  }
+
+  async function loadTasks({ preserveLocal = false } = {}) {
     try {
-      error.value = '';
-      const content = await loadTodoContent();
-      const parsed = parseMarkdownToTasks(content);
-      priorityTasks.value = parsed.priority;
-      otherTasks.value = parsed.other;
-      doneTasks.value = parsed.done;
-      return content;
-    } catch (err) {
-      error.value = `Error loading tasks: ${err.message}`;
-      console.error('Error loading tasks:', err);
-      // Don't throw - let the UI continue to work with existing data
+      loadError.value = '';
+      const response = await loadTodoContent();
+      if (!coordinator.version.value) {
+        return applyContent(coordinator.initialize(response));
+      }
+      if (preserveLocal || coordinator.dirty.value || coordinator.resolving.value) {
+        coordinator.noteExternalVersion(response.version);
+        return markdownContent.value;
+      }
+      return applyContent(coordinator.adopt(response));
+    } catch (loadFailure) {
+      loadError.value = loadFailure.userMessage || 'Could not load tasks. Check that the app server is running, then reload the page.';
+      console.error('Error loading tasks:', loadFailure);
       return null;
     }
   }
 
-  /**
-   * Save tasks to server
-   */
-  async function saveTasks() {
+  async function saveContent(content) {
+    markdownContent.value = content;
+    return coordinator.save(content);
+  }
+
+  function markContentDirty(content) {
+    markdownContent.value = content;
+    coordinator.markDirty(content);
+  }
+
+  function restoreLocalCandidate(content) {
+    applyContent(content);
+    coordinator.markDirty(content);
+  }
+
+  async function saveTasks(snapshot = null) {
+    const content = generateMarkdownFromTasks(
+      priorityTasks.value,
+      otherTasks.value,
+      doneTasks.value
+    );
+    markdownContent.value = content;
     try {
-      error.value = '';
-      const content = generateMarkdownFromTasks(
-        priorityTasks.value,
-        otherTasks.value,
-        doneTasks.value
-      );
-      await saveTodoContent(content);
+      await saveContent(content);
       return content;
-    } catch (err) {
-      error.value = `Error saving tasks: ${err.message}`;
-      console.error('Error saving tasks:', err);
-      throw err;
+    } catch (saveFailure) {
+      if (saveFailure instanceof ConflictError || coordinator.preserveCandidateOnFailure.value) {
+        applyContent(coordinator.localCandidate.value);
+      } else if (snapshot) {
+        restoreTasks(snapshot);
+        coordinator.restoreCandidate(snapshot.markdownContent, snapshot.dirty);
+      }
+      throw saveFailure;
     }
   }
 
-  /**
-   * Complete a task (move to Done with date)
-   */
+  async function mutateAndSave(mutation) {
+    const snapshot = snapshotTasks();
+    mutation();
+    return saveTasks(snapshot);
+  }
+
   async function completeTask(section, index) {
-    const lists = getTaskLists();
-    const sourceList = getTaskList(section, lists);
-
-    moveTask({
-      sourceList,
-      sourceIndex: index,
-      targetList: doneTasks.value,
-      targetIndex: 0,
-      transformTask: addDateToTask
+    return mutateAndSave(() => {
+      const lists = getTaskLists();
+      moveTask({
+        sourceList: getTaskList(section, lists),
+        sourceIndex: index,
+        targetList: doneTasks.value,
+        targetIndex: 0,
+        transformTask: addDateToTask
+      });
     });
-
-    await saveTasks();
   }
 
-  /**
-   * Uncomplete a task (move from Done back to Priority)
-   */
   async function uncompleteTask(index) {
-    moveTask({
-      sourceList: doneTasks.value,
-      sourceIndex: index,
-      targetList: priorityTasks.value,
-      targetIndex: 0,
-      transformTask: removeDateFromTask
+    return mutateAndSave(() => {
+      moveTask({
+        sourceList: doneTasks.value,
+        sourceIndex: index,
+        targetList: priorityTasks.value,
+        targetIndex: 0,
+        transformTask: removeDateFromTask
+      });
     });
-
-    await saveTasks();
   }
 
-  /**
-   * Delete a task
-   */
   async function deleteTask(section, index) {
-    const lists = getTaskLists();
-    const targetList = getTaskList(section, lists);
-    targetList.splice(index, 1);
-    await saveTasks();
+    return mutateAndSave(() => {
+      getTaskList(section, getTaskLists()).splice(index, 1);
+    });
   }
 
-  /**
-   * Move task between sections
-   */
   async function moveTaskBetweenSections(fromSection, toSection, index, targetIndex = 0) {
-    const lists = getTaskLists();
-    const sourceList = getTaskList(fromSection, lists);
-    const targetList = getTaskList(toSection, lists);
-
-    // Don't transform Done tasks - they keep their date prefix
-    const transformTask = fromSection === 'Done' ? removeDateFromTask : null;
-
-    moveTask({
-      sourceList,
-      sourceIndex: index,
-      targetList,
-      targetIndex,
-      transformTask
+    return mutateAndSave(() => {
+      const lists = getTaskLists();
+      moveTask({
+        sourceList: getTaskList(fromSection, lists),
+        sourceIndex: index,
+        targetList: getTaskList(toSection, lists),
+        targetIndex,
+        transformTask: fromSection === 'Done' ? removeDateFromTask : null
+      });
     });
+  }
 
-    await saveTasks();
+  async function replaceFromBackup(content, previewVersion, confirmReplacement) {
+    return coordinator.replace(content, {
+      previewVersion,
+      confirmReplacement
+    });
   }
 
   return {
-    // State
     priorityTasks,
     otherTasks,
     doneTasks,
+    markdownContent,
     error,
-
-    // Methods
+    version: coordinator.version,
+    dirty: coordinator.dirty,
+    resolving: coordinator.resolving,
+    externalChange: coordinator.externalChange,
+    unresolved: coordinator.unresolved,
+    contention: coordinator.contention,
+    inFlight: coordinator.inFlight,
+    pendingOperations: coordinator.pendingOperations,
     loadTasks,
     saveTasks,
+    saveContent,
+    markContentDirty,
+    restoreLocalCandidate,
     completeTask,
     uncompleteTask,
     deleteTask,
     moveTaskBetweenSections,
-    getTaskLists
+    replaceFromBackup,
+    snapshotTasks,
+    restoreTasks,
+    getTaskLists,
+    noteExternalVersion: coordinator.noteExternalVersion
   };
 }

@@ -4,7 +4,7 @@
 // `todo-backup-YYYYMMDDTHHMMSS.md`. Only the MAX_BACKUPS most recent files are
 // kept on disk; older ones are pruned whenever a new backup is created.
 import fs from 'fs/promises';
-import { dirname, join, resolve, sep } from 'path';
+import { basename, dirname, extname, join, resolve, sep } from 'path';
 import {
   backupFileName,
   isBackupFileName,
@@ -111,6 +111,40 @@ export async function createBackupBeforeWrite(todoFilePath, nextContent) {
 
   if (previousContent === nextContent) return null;
   return createBackup(todoFilePath, previousContent);
+}
+
+/**
+ * Back up a non-todo resource using `<name>-backup-YYYYMMDDTHHMMSS<ext>`.
+ * The newest MAX_BACKUPS copies are retained.
+ */
+export async function createResourceBackup(filePath, content, now = new Date()) {
+  const dir = dirname(filePath);
+  const extension = extname(filePath);
+  const stem = basename(filePath, extension);
+  const prefix = `${stem}-backup-`;
+  let filename;
+
+  while (true) {
+    const timestamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
+    filename = `${prefix}${timestamp}${extension}`;
+    try {
+      await fs.writeFile(join(dir, filename), content, { encoding: 'utf-8', flag: 'wx' });
+      break;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      now = new Date(now.getTime() + 1000);
+    }
+  }
+
+  const entries = await fs.readdir(dir);
+  const backups = entries
+    .filter((entry) => entry.startsWith(prefix) && entry.endsWith(extension))
+    .sort()
+    .reverse();
+  await Promise.all(
+    backups.slice(MAX_BACKUPS).map((entry) => fs.unlink(join(dir, entry)).catch(() => {}))
+  );
+  return filename;
 }
 
 /**

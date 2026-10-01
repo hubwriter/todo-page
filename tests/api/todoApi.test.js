@@ -9,28 +9,57 @@ beforeEach(() => {
 
 describe('loadTodoContent', () => {
   it('returns content on success', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ content: 'hello' }) })));
-    await expect(loadTodoContent()).resolves.toBe('hello');
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ content: 'hello', version: 'v1' }) })));
+    await expect(loadTodoContent()).resolves.toEqual({ content: 'hello', version: 'v1' });
   });
 
   it('throws on failure', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false })));
     await expect(loadTodoContent()).rejects.toThrow('Failed to load tasks');
   });
+
+  it('rejects an outdated unversioned response with an actionable message', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ content: 'legacy content' })
+    })));
+    const error = await loadTodoContent().catch((failure) => failure);
+    expect(error.message).toContain('version=undefined');
+    expect(error.userMessage).toContain('Restart the app server');
+    expect(error.details).toMatchObject({
+      operation: 'load',
+      contentType: 'string',
+      versionType: 'undefined'
+    });
+  });
 });
 
 describe('saveTodoContent', () => {
   it('POSTs the content as JSON', async () => {
-    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+    const fetchMock = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ content: 'data', version: 'v2' })
+    }));
     vi.stubGlobal('fetch', fetchMock);
-    await saveTodoContent('data');
+    await saveTodoContent('data', 'v1');
     expect(fetchMock).toHaveBeenCalledWith('/api/todo', expect.objectContaining({ method: 'POST' }));
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ content: 'data' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ content: 'data', baseVersion: 'v1' });
   });
 
   it('throws on failure', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false })));
     await expect(saveTodoContent('x')).rejects.toThrow('Failed to save tasks');
+  });
+
+  it('rejects the legacy success-only save response before it reaches Markdown parsing', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ success: true })
+    })));
+    const error = await saveTodoContent('edited task', 'v1').catch((failure) => failure);
+    expect(error.message).toBe('Invalid todo save response: content=undefined, version=undefined');
+    expect(error.userMessage).toContain('Restart the app server');
+    expect(error.details.responseKeys).toEqual(['success']);
   });
 });
 
@@ -78,8 +107,8 @@ describe('setupFileWatcher', () => {
   it('invokes the callback when a change event is received', () => {
     const cb = vi.fn();
     makeWatcher(cb);
-    instances[0].onmessage({ data: JSON.stringify({ type: 'change' }) });
-    expect(cb).toHaveBeenCalled();
+    instances[0].onmessage({ data: JSON.stringify({ resource: 'todo', version: 'v2' }) });
+    expect(cb).toHaveBeenCalledWith({ resource: 'todo', version: 'v2' });
   });
 
   it('returns a handle that closes the stream', () => {
@@ -119,6 +148,40 @@ describe('setupFileWatcher', () => {
 
     vi.advanceTimersByTime(RECONNECT_DELAY_MS);
     expect(openStreams()).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it('resyncs exactly once after an outage reconnect and closes cleanly', () => {
+    vi.useFakeTimers();
+    const cb = vi.fn();
+    const watcher = makeWatcher(cb);
+    const failedSource = instances[0];
+
+    failedSource.onerror(new Error('boom'));
+    expect(openStreams()).toHaveLength(0);
+    expect(cb).not.toHaveBeenCalled();
+
+    // The remote resource changes during the connection gap, with no SSE
+    // event available to announce it.
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+    const reconnectedSource = instances[1];
+    expect(openStreams()).toEqual([reconnectedSource]);
+
+    reconnectedSource.onopen();
+    reconnectedSource.onopen();
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith({ resource: null, version: null, resync: true });
+
+    failedSource.onerror(new Error('stale error'));
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+    expect(openStreams()).toEqual([reconnectedSource]);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    watcher.close();
+    expect(openStreams()).toHaveLength(0);
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+    expect(openStreams()).toHaveLength(0);
+    expect(cb).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 });
