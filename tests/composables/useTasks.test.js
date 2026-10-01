@@ -7,6 +7,7 @@ vi.mock('../../src/api/todoApi.js', () => ({
 
 import { loadTodoContent, saveTodoContent } from '../../src/api/todoApi.js';
 import { useTasks } from '../../src/composables/useTasks.js';
+import { parseMarkdownToTasks, generateMarkdownFromTasks, removeDateFromTask } from '../../src/utils/markdownUtils.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -14,6 +15,26 @@ beforeEach(() => {
 });
 
 describe('useTasks', () => {
+  it('preserves nested Markdown when moving, completing, reopening, and reloading tasks', async () => {
+    const task = 'A list:\n- Parent\n  - Child\n\nAnother paragraph.\n\n```text\n  code\n```';
+    let saved = generateMarkdownFromTasks([task], [], []);
+    loadTodoContent.mockImplementation(async () => saved);
+    saveTodoContent.mockImplementation(async content => { saved = content; });
+    const tasks = useTasks();
+    await tasks.loadTasks();
+    await tasks.moveTaskBetweenSections('Priority', 'Other', 0);
+    await tasks.loadTasks();
+    expect(tasks.otherTasks.value).toEqual([task]);
+    await tasks.completeTask('Other', 0);
+    await tasks.loadTasks();
+    expect(tasks.otherTasks.value).toEqual([]);
+    expect(removeDateFromTask(parseMarkdownToTasks(saved).done[0])).toBe(task);
+    await tasks.uncompleteTask(0);
+    await tasks.loadTasks();
+    expect(tasks.priorityTasks.value).toEqual([task]);
+    expect(tasks.doneTasks.value).toEqual([]);
+  });
+
   it('loads and parses tasks from the server', async () => {
     loadTodoContent.mockResolvedValue(
       '# Priority\n\n- [ ] A\n\n# Other\n\n- [ ] B\n\n# Done\n\n- [x] 2025-01-01 - C\n'

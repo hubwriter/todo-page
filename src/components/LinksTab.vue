@@ -8,8 +8,10 @@
           <div class="category-combo" @click.stop>
             <input
               id="link-category"
+              ref="categoryInput"
               type="text"
               v-model="form.category"
+              v-edit-history="editSession"
               placeholder="e.g. GitHub"
               autocomplete="off"
               role="combobox"
@@ -55,6 +57,7 @@
             id="link-url"
             type="text"
             v-model="form.url"
+            v-edit-history="editSession"
             placeholder="https://example.com"
             autocomplete="off"
             @keydown="handleKeyDown"
@@ -66,9 +69,11 @@
           <textarea
             id="link-description"
             v-model="form.description"
+            v-edit-history="editSession"
             placeholder="A short description of the link"
             rows="2"
             @keydown="handleKeyDown"
+            @paste="handleMarkdownPaste"
           ></textarea>
         </div>
       </div>
@@ -137,6 +142,9 @@ import LinkList from './LinkList.vue';
 import LinkContextMenu from './LinkContextMenu.vue';
 import { useLinks } from '../composables/useLinks.js';
 import { normalizeUrl } from '../utils/linkUtils.js';
+import { handleFormattingShortcut } from '../utils/formattingShortcuts.js';
+import { handleMarkdownPaste } from '../utils/markdownPaste.js';
+import { vEditHistory } from '../utils/editHistory.js';
 import { DEFAULT_LINK_CATEGORY } from '../constants.js';
 
 const props = defineProps({
@@ -167,6 +175,8 @@ const form = reactive({
 
 // When set, the form is editing an existing entry: { id, category }
 const editing = ref(null);
+const editSession = ref(0);
+const categoryInput = ref(null);
 const isEditing = computed(() => editing.value !== null);
 
 // Category dropdown state
@@ -192,6 +202,7 @@ const contextMenu = ref({
 });
 
 function resetForm() {
+  editSession.value++;
   form.category = DEFAULT_LINK_CATEGORY;
   form.url = '';
   form.description = '';
@@ -240,7 +251,11 @@ function toggleCategoryDropdown() {
 }
 
 function selectCategory(name) {
-  form.category = name;
+  const input = categoryInput.value;
+  input.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertReplacementText', bubbles: true }));
+  input.value = name;
+  input.setSelectionRange(name.length, name.length);
+  input.dispatchEvent(new InputEvent('input', { inputType: 'insertReplacementText', bubbles: true }));
   showCategoryDropdown.value = false;
 }
 
@@ -249,6 +264,7 @@ function closeCategoryDropdown() {
 }
 
 function handleKeyDown(event) {
+  handleFormattingShortcut(event);
   // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to submit
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
     event.preventDefault();
@@ -313,6 +329,7 @@ function handleEditFromMenu() {
   closeContextMenu();
   if (!entry) return;
 
+  editSession.value++;
   form.category = category;
   form.url = entry.url;
   form.description = entry.description;

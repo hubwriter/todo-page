@@ -98,10 +98,12 @@
         <textarea
           ref="taskInputRef"
           v-model="newTask"
+          v-edit-history="editingTask"
           :placeholder="taskInputPlaceholder"
           :aria-label="editState.isEditing ? 'Edit task' : 'New task'"
           rows="3"
           @keydown="handleKeyDown"
+          @paste="handleMarkdownPaste"
         ></textarea>
         <div class="button-group">
           <button
@@ -178,7 +180,10 @@
         <h2>Markdown Editor</h2>
         <textarea
           v-model="markdownContent"
+          v-edit-history
           aria-label="Markdown editor"
+          @keydown="handleFormattingShortcut"
+          @paste="handleMarkdownPaste"
         ></textarea>
       </div>
     </div>
@@ -229,6 +234,27 @@
         </ul>
         <p>Either way the task is loaded back into the box at the top, where you
           can change it and click <em>Save</em>, or click <em>Cancel</em> to leave it unchanged.</p>
+        <p><strong>Formatting text.</strong> Select text and press <kbd>Cmd</kbd>+<kbd>B</kbd>
+          for bold or <kbd>Cmd</kbd>+<kbd>I</kbd> for italics on macOS.
+          On Windows/Linux, use <kbd>Ctrl</kbd> instead of <kbd>Cmd</kbd>.
+          These shortcuts insert Markdown formatting in task text, the Markdown editor,
+          and link descriptions.</p>
+        <p>To turn selected text into a Markdown link, paste a URL over it.
+          For example, pasting <code>https://www.bbc.co.uk/news</code> over
+          <code>this website</code> produces
+          <code>[this website](https://www.bbc.co.uk/news)</code>.
+          Pasting other text replaces the selection normally.</p>
+        <p><strong>Undo and redo.</strong> Use <kbd>Cmd</kbd>+<kbd>Z</kbd> to undo and
+          <kbd>Shift</kbd>+<kbd>Cmd</kbd>+<kbd>Z</kbd> to redo on macOS. On Windows/Linux,
+          use <kbd>Ctrl</kbd>+<kbd>Z</kbd> to undo and <kbd>Ctrl</kbd>+<kbd>Y</kbd> or
+          <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> to redo. Each field keeps its own
+          history for the current entry, including formatting and pasted links.
+          Saving, canceling, or opening another entry resets its history.
+          Autosaves in the Markdown editor do not reset history.</p>
+        <p>Tasks also support nested bullet and numbered lists, paragraphs, headings,
+          block quotes, code blocks, and tables. Use <code>- </code> for a bullet
+          and indent nested bullets with spaces. Indentation and blank lines
+          are preserved when you save and reopen a task.</p>
 
         <p><strong>The task menu.</strong> Double-click any task to open a menu with these options:</p>
         <ul>
@@ -336,6 +362,9 @@ import { generateMarkdownFromTasks, removeDateFromTask, parseMarkdownToTasks } f
 import { parseBackupTimestamp } from './utils/backupUtils.js';
 import { calculateDropPosition, getTaskList } from './utils/taskUtils.js';
 import { tabToHash, hashToTab, getTabFromHash } from './utils/tabRouting.js';
+import { handleFormattingShortcut } from './utils/formattingShortcuts.js';
+import { handleMarkdownPaste } from './utils/markdownPaste.js';
+import { vEditHistory } from './utils/editHistory.js';
 import { AUTO_SAVE_DELAY_MS } from './constants.js';
 
 // Configure marked for inline rendering
@@ -498,6 +527,7 @@ async function handleCancel() {
 }
 
 function handleKeyDown(event) {
+  handleFormattingShortcut(event);
   // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to submit
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
     event.preventDefault();

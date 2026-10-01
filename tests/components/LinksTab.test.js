@@ -22,6 +22,145 @@ async function fill(wrapper, { category, url, description }) {
 }
 
 describe('LinksTab', () => {
+  it('supports independent undo and redo in all link fields and resets on cancel and save', async () => {
+    const wrapper = mount(LinksTab);
+    try {
+      await flushPromises();
+      const fields = [
+        ['#link-category', 'GitHub', 'News'],
+        ['#link-url', '', 'https://example.com'],
+        ['#link-description', '', 'Description']
+      ];
+      for (const [selector, original, changed] of fields) {
+        const field = wrapper.find(selector);
+        await field.setValue(changed);
+        await field.trigger('keydown', { key: 'z', ctrlKey: true });
+        expect(field.element.value).toBe(original);
+        await field.trigger('keydown', { key: 'y', ctrlKey: true });
+        expect(field.element.value).toBe(changed);
+      }
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+      expect(saveLinks.mock.calls.at(-1)[0][0].links[0].description).toBe('Description');
+      for (const [selector, original] of fields) {
+        await wrapper.find(selector).trigger('keydown', { key: 'z', ctrlKey: true });
+        expect(wrapper.find(selector).element.value).toBe(original);
+      }
+      await wrapper.find('.link-description').trigger('dblclick');
+      await wrapper.find('.context-menu-item').trigger('click');
+      const description = wrapper.find('#link-description');
+      await description.trigger('keydown', { key: 'z', ctrlKey: true });
+      expect(description.element.value).toBe('Description');
+      await description.setValue('Changed');
+      await description.trigger('keydown', { key: 'z', ctrlKey: true });
+      expect(description.element.value).toBe('Description');
+      await wrapper.find('.btn-secondary').trigger('click');
+      await description.trigger('keydown', { key: 'y', ctrlKey: true });
+      expect(description.element.value).toBe('');
+    } finally { wrapper.unmount(); }
+  });
+
+  it('undoes category dropdown selection without discarding earlier typing history', async () => {
+    const wrapper = mount(LinksTab);
+    try {
+      await flushPromises();
+      const category = wrapper.find('#link-category');
+      await category.setValue('Custom');
+      await wrapper.find('.category-toggle').trigger('click');
+      await wrapper.find('.category-option').trigger('click');
+      expect(category.element.value).toBe('GitHub');
+      await category.trigger('keydown', { key: 'z', metaKey: true });
+      expect(category.element.value).toBe('Custom');
+      await category.trigger('keydown', { key: 'z', metaKey: true });
+      expect(category.element.value).toBe('GitHub');
+    } finally { wrapper.unmount(); }
+  });
+
+  it('saves and renders a URL pasted over selected description text', async () => {
+    const wrapper = mount(LinksTab);
+    try {
+      await flushPromises();
+      await fill(wrapper, { category: 'News', url: 'https://example.com', description: 'See this website' });
+      const textarea = wrapper.find('#link-description');
+      textarea.element.setSelectionRange(4, 16);
+      await textarea.trigger('paste', {
+        clipboardData: { getData: () => 'https://www.bbc.co.uk/news' }
+      });
+      expect(textarea.element.value).toBe('See [this website](https://www.bbc.co.uk/news)');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+      expect(saveLinks.mock.calls.at(-1)[0][0].links[0].description)
+        .toBe('See [this website](https://www.bbc.co.uk/news)');
+      expect(wrapper.find('.link-description a').attributes('href')).toBe('https://www.bbc.co.uk/news');
+      expect(wrapper.find('.link-description a').text()).toBe('this website');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each(['#link-category', '#link-url'])('keeps native URL pasting in %s', async selector => {
+    const wrapper = mount(LinksTab);
+    try {
+      await flushPromises();
+      const input = wrapper.find(selector);
+      await input.setValue('example');
+      input.element.setSelectionRange(0, 7);
+      const event = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', {
+        value: { getData: () => 'https://www.bbc.co.uk/news' }
+      });
+      input.element.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+      expect(input.element.value).toBe('example');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each([
+    ['metaKey', 'b', '**', 'strong'],
+    ['metaKey', 'i', '_', 'em'],
+    ['ctrlKey', 'b', '**', 'strong'],
+    ['ctrlKey', 'i', '_', 'em']
+  ])('saves description formatting with %s + %s', async (modifier, key, marker, tag) => {
+    loadLinks.mockResolvedValue([{
+      name: 'GitHub',
+      links: [{ id: 'existing', url: 'https://github.com', description: 'The repo' }]
+    }]);
+    const wrapper = mount(LinksTab);
+    try {
+      await flushPromises();
+      await wrapper.find('.link-description').trigger('dblclick');
+      await wrapper.find('.context-menu-item').trigger('click');
+      expect(wrapper.find('.btn-primary').text()).toBe('Save');
+      const textarea = wrapper.find('#link-description');
+      textarea.element.setSelectionRange(4, 8);
+      await textarea.trigger('keydown', { key, [modifier]: true });
+      expect(textarea.element.value).toBe(`The ${marker}repo${marker}`);
+      expect(saveLinks).not.toHaveBeenCalled();
+      await textarea.trigger('keydown', { key: 'Enter', [modifier]: true });
+      await flushPromises();
+      expect(saveLinks.mock.calls.at(-1)[0][0].links[0].description).toBe(`The ${marker}repo${marker}`);
+      expect(wrapper.find(`.link-description ${tag}`).text()).toBe('repo');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each(['#link-category', '#link-url'])('does not format %s', async selector => {
+    const wrapper = mount(LinksTab);
+    try {
+      await flushPromises();
+      const input = wrapper.find(selector);
+      await input.setValue('example');
+      input.element.setSelectionRange(0, 7);
+      await input.trigger('keydown', { key: 'b', ctrlKey: true });
+      expect(input.element.value).toBe('example');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('shows the empty-state hint when there are no links', async () => {
     const wrapper = mount(LinksTab);
     await flushPromises();

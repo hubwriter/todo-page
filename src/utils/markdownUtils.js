@@ -46,19 +46,31 @@ export function transformImagePaths(text) {
 /**
  * Render markdown to HTML with sanitization
  * @param {string} text - Markdown text to render
+ * @param {Object} options - Use inline: false to render block Markdown
  * @returns {string} Sanitized HTML
  */
-export function renderMarkdown(text) {
+export function renderMarkdown(text, { inline = true } = {}) {
   if (!text) return '';
 
   // Transform local image paths to API URLs first
   const transformed = transformImagePaths(text);
 
-  // Use marked.parseInline for inline rendering
-  const rawHtml = marked.parseInline(transformed, { async: false });
+  const options = { async: false, gfm: true, breaks: true };
+  const rawHtml = inline
+    ? marked.parseInline(transformed, options)
+    : marked.parse(transformed, options);
 
   // Sanitize the output to prevent XSS attacks
-  return DOMPurify.sanitize(rawHtml, SANITIZE_CONFIG);
+  return DOMPurify.sanitize(rawHtml, inline ? SANITIZE_CONFIG : {
+    ...SANITIZE_CONFIG,
+    ALLOWED_TAGS: [
+      ...SANITIZE_CONFIG.ALLOWED_TAGS,
+      'p', 'ul', 'ol', 'li', 'blockquote', 'pre', 'hr',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td'
+    ],
+    ALLOWED_ATTR: [...SANITIZE_CONFIG.ALLOWED_ATTR, 'start', 'align']
+  });
 }
 
 /**
@@ -67,7 +79,7 @@ export function renderMarkdown(text) {
  * @returns {Object} { priority: [], other: [], done: [] }
  */
 export function parseMarkdownToTasks(content) {
-  const lines = content.split('\n');
+  const lines = content.split(/\r?\n/);
   let currentSection = null;
   const sections = {
     priority: [],
@@ -76,34 +88,34 @@ export function parseMarkdownToTasks(content) {
   };
   let currentTask = null;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
+  function finishTask() {
+    if (currentTask !== null && currentSection) {
+      // Blank lines between entries/sections are not part of the task.
+      while (currentTask.length && !currentTask.at(-1).trim()) currentTask.pop();
+      sections[currentSection].push(currentTask.join('\n'));
+    }
+    currentTask = null;
+  }
 
-    // Check for section headers
-    if (trimmed === '# Priority') {
-      currentSection = 'priority';
-      currentTask = null;
-    } else if (trimmed === '# Other') {
-      currentSection = 'other';
-      currentTask = null;
-    } else if (trimmed === '# Done') {
-      currentSection = 'done';
-      currentTask = null;
-    } else if (trimmed.startsWith('- [ ]') || trimmed.startsWith('- [x]')) {
-      // Start of a new task
-      const taskText = trimmed.substring(5).trim();
+  for (const line of lines) {
+    const heading = /^# (Priority|Other|Done)\s*$/.exec(line);
+    const task = /^- \[[ xX]\](?:[ \t]+(.*)|$)/.exec(line);
+
+    if (heading) {
+      finishTask();
+      currentSection = heading[1].toLowerCase();
+    } else if (task) {
+      finishTask();
+      const taskText = (task[1] || '').trim();
       if (taskText && currentSection) {
-        currentTask = taskText;
-        sections[currentSection].push(currentTask);
+        currentTask = [taskText];
       }
-    } else if (trimmed && currentTask !== null && currentSection) {
-      // Continuation line (indented paragraph)
-      const updatedTask = currentTask + '\n' + trimmed;
-      const sectionArray = sections[currentSection];
-      sectionArray[sectionArray.length - 1] = updatedTask;
-      currentTask = updatedTask;
+    } else if (currentTask !== null) {
+      // Remove only the storage prefix, preserving Markdown indentation.
+      currentTask.push(line.startsWith('  ') ? line.slice(2) : line);
     }
   }
+  finishTask();
 
   return sections;
 }
