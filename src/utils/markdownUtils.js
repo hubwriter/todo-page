@@ -8,7 +8,6 @@ const ALLOWED_STYLE_PROPERTIES = new Set([
   'background-color',
   'font-weight',
   'font-style',
-  'text-decoration',
   'text-decoration-line',
   'text-decoration-color',
   'text-decoration-style'

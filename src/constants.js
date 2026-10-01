@@ -41,7 +41,7 @@ export const RECONNECT_DELAY_MS = 5000;
 // DOMPurify Configuration (client-side only)
 export const SANITIZE_CONFIG = {
   ALLOWED_TAGS: ['a', 'img', 'strong', 'em', 'code', 'del', 'br', 'span', 'div'],
-  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel', 'width', 'height', 'style', 'class', 'id'],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel', 'width', 'height', 'style'],
   ALLOW_DATA_ATTR: false
 };
 

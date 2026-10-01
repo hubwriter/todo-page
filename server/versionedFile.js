@@ -16,6 +16,24 @@ export function hashBytes(content) {
   return createHash('sha256').update(content).digest('hex');
 }
 
+export async function resolveVersionedFilePath(filePath, resource) {
+  try {
+    const stats = await fs.lstat(filePath);
+    if (!stats.isSymbolicLink()) return filePath;
+    try {
+      return await fs.realpath(filePath);
+    } catch (error) {
+      if (error?.code === 'ENOENT') {
+        throw new Error(`Configured ${resource} file is a dangling symbolic link: ${filePath}`, { cause: error });
+      }
+      throw error;
+    }
+  } catch (error) {
+    if (error?.code === 'ENOENT') return filePath;
+    throw error;
+  }
+}
+
 export async function readVersionedFile(filePath) {
   const bytes = await fs.readFile(filePath);
   return {
@@ -92,11 +110,13 @@ export async function conditionalAtomicWrite({
 
     const nextBytes = Buffer.from(content, 'utf-8');
     const temporaryPath = join(dirname(filePath), `.${resource}-${randomUUID()}.tmp`);
+    const fileMode = (await fs.stat(filePath)).mode & 0o7777;
 
     try {
       const handle = await fs.open(temporaryPath, 'wx');
       try {
         await handle.writeFile(nextBytes);
+        await handle.chmod(fileMode);
         await handle.sync();
       } finally {
         await handle.close();

@@ -156,7 +156,7 @@ describe('renderMarkdown', () => {
 
   it('preserves safe text formatting on span and div HTML', () => {
     const element = renderBlock(
-      '<span style="color:green;background-color:yellow;font-weight:700;font-style:italic;text-decoration:underline">inline</span>' +
+      '<span style="color:green;background-color:yellow;font-weight:700;font-style:italic;text-decoration-line:underline">inline</span>' +
       '<div style="color:blue">block</div>'
     );
     const span = element.querySelector('span');
@@ -166,8 +166,34 @@ describe('renderMarkdown', () => {
     expect(span.style.backgroundColor).toBe('yellow');
     expect(span.style.fontWeight).toBe('700');
     expect(span.style.fontStyle).toBe('italic');
-    expect(span.style.textDecoration).toContain('underline');
+    expect(span.style.textDecorationLine).toBe('underline');
     expect(div.style.color).toBe('blue');
+  });
+
+  it('removes application selector attributes while preserving safe text styles', () => {
+    const element = renderBlock(
+      '<span id="app" class="todo-app" style="color:green">safe text</span>'
+    );
+    const span = element.querySelector('span');
+
+    expect(span.hasAttribute('id')).toBe(false);
+    expect(span.hasAttribute('class')).toBe(false);
+    expect(span.style.color).toBe('green');
+  });
+
+  it('rejects text-decoration thickness shorthand while preserving safe underline longhands', () => {
+    const element = renderBlock(
+      '<span style="text-decoration:underline solid red 100vh;' +
+      'text-decoration-line:underline;text-decoration-style:solid;' +
+      'text-decoration-color:red">text</span>'
+    );
+    const span = element.querySelector('span');
+
+    expect(span.style.textDecorationThickness).toBe('');
+    expect(span.style.textDecorationLine).toBe('underline');
+    expect(span.style.textDecorationStyle).toBe('solid');
+    expect(span.style.textDecorationColor).toBe('red');
+    expect(span.getAttribute('style')).not.toContain('100vh');
   });
 
   it('removes layout-affecting CSS while preserving safe text formatting', () => {

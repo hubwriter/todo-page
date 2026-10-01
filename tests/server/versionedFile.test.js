@@ -6,7 +6,8 @@ import {
   conditionalAtomicWrite,
   ensureVersionedFileExists,
   hashBytes,
-  readVersionedFile
+  readVersionedFile,
+  resolveVersionedFilePath
 } from '../../server/versionedFile.js';
 
 describe('versioned file writes', () => {
@@ -95,6 +96,49 @@ describe('versioned file writes', () => {
     expect(observed).toBe('first\r\n');
     expect(result.status).toBe('written');
     expect(await fs.readFile(filePath, 'utf-8')).toBe('replacement');
+  });
+
+  it.each(['todo', 'links'])('preserves 0600 permissions when replacing the %s file', async (resource) => {
+    await fs.chmod(filePath, 0o600);
+    const { version } = await readVersionedFile(filePath);
+    const result = await conditionalAtomicWrite({
+      resource: `${resource}-mode-test`,
+      filePath,
+      baseVersion: version,
+      content: 'replacement'
+    });
+
+    expect(result.status).toBe('written');
+    expect((await fs.stat(filePath)).mode & 0o777).toBe(0o600);
+  });
+
+  it('resolves an existing configured symlink and writes its target without replacing the link', async () => {
+    const targetPath = join(dir, 'target.md');
+    const linkPath = join(dir, 'configured.md');
+    await fs.writeFile(targetPath, 'target', 'utf-8');
+    await fs.symlink(targetPath, linkPath);
+
+    const resolvedPath = await resolveVersionedFilePath(linkPath, 'todo');
+    const { version } = await readVersionedFile(resolvedPath);
+    await conditionalAtomicWrite({
+      resource: 'todo-symlink-test',
+      filePath: resolvedPath,
+      baseVersion: version,
+      content: 'replacement'
+    });
+
+    expect(resolvedPath).toBe(await fs.realpath(targetPath));
+    expect((await fs.lstat(linkPath)).isSymbolicLink()).toBe(true);
+    expect(await fs.readFile(targetPath, 'utf-8')).toBe('replacement');
+  });
+
+  it('rejects a dangling configured symlink with a clear startup error', async () => {
+    const linkPath = join(dir, 'dangling.md');
+    await fs.symlink(join(dir, 'missing.md'), linkPath);
+
+    await expect(resolveVersionedFilePath(linkPath, 'todo'))
+      .rejects.toThrow(`Configured todo file is a dangling symbolic link: ${linkPath}`);
+    expect((await fs.lstat(linkPath)).isSymbolicLink()).toBe(true);
   });
 
   it('aborts when an external edit lands before rename', async () => {

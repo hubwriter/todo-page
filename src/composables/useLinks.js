@@ -123,7 +123,7 @@ export function useLinks() {
   });
 
   const error = computed({
-    get: () => coordinator.error.value || loadError.value,
+    get: () => coordinator.error.value || loadError.value || coordinator.recoveryWarning.value,
     set: (value) => {
       loadError.value = value;
       if (!value) coordinator.error.value = '';

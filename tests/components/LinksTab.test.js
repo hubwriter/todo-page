@@ -424,6 +424,36 @@ describe('LinksTab', () => {
     restored.unmount();
   });
 
+  it('keeps invalid recovery editing functional when sessionStorage quota is exceeded', async () => {
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '{"broken"',
+      version: 'v-bad',
+      invalid: true,
+      error: 'invalid JSON'
+    });
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      });
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+
+    const repaired = '[{"name":"Recovered","links":[]}]';
+    await expect(wrapper.find('[aria-label="Invalid links JSON"]').setValue(repaired))
+      .resolves.toBeUndefined();
+    expect(wrapper.find('[aria-label="Invalid links JSON"]').element.value).toBe(repaired);
+    expect(wrapper.find('[role="alert"]').text()).toContain('Keep this tab open');
+    await wrapper.find('.invalid-links .btn-primary').trigger('click');
+    await flushPromises();
+    expect(saveLinks).toHaveBeenCalled();
+
+    wrapper.unmount();
+    storageSpy.mockRestore();
+    consoleSpy.mockRestore();
+  });
+
   it('warns before unloading with an edited invalid-JSON recovery draft', async () => {
     loadLinks.mockResolvedValue({
       categories: null,

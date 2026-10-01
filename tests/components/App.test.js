@@ -583,6 +583,33 @@ describe('App backups preview', () => {
     }
   });
 
+  it('continues backup preview with an actionable warning when recovery storage is full', async () => {
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      });
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const wrapper = mount(App);
+    try {
+      await flushPromises();
+      await wrapper.find('.add-task textarea').setValue('Unsaved task');
+      await wrapper.findAll('.tabs button').find((button) => button.text() === 'Backups').trigger('click');
+      await flushPromises();
+      await wrapper.find('.backup-item').trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('.backup-banner').exists()).toBe(true);
+      expect(wrapper.find('.error').text()).toContain('Keep this tab open');
+      expect(saveTodoContent).not.toHaveBeenCalled();
+    } finally {
+      wrapper.unmount();
+      storageSpy.mockRestore();
+      consoleSpy.mockRestore();
+      confirmSpy.mockRestore();
+    }
+  });
+
   it('requires an explicit decision before restoring over dirty Markdown', async () => {
     vi.useFakeTimers();
     const confirmSpy = vi.spyOn(window, 'confirm')
@@ -910,6 +937,87 @@ describe('App resource watcher', () => {
       await vi.runAllTimersAsync();
       expect(wrapper.find('.task-text').text()).toContain('External');
       expect(saveTodoContent).not.toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves an active task edit and does not autosave an external change when switching to Markdown', async () => {
+    vi.useFakeTimers();
+    try {
+      loadTodoContent.mockResolvedValue({
+        content: '# Priority\n\n- [ ] Original\n\n# Other\n\n# Done\n',
+        version: 'v1'
+      });
+      const wrapper = mount(App);
+      await vi.runAllTimersAsync();
+      await wrapper.find('li.task-item').trigger('click', { metaKey: true });
+      const taskInput = wrapper.find('.add-task textarea');
+      await taskInput.setValue('Draft edit');
+
+      const callback = setupFileWatcher.mock.calls.at(-1)[0];
+      callback({ resource: 'todo', version: 'v2' });
+      await flushPromises();
+      saveTodoContent.mockClear();
+      loadTodoContent.mockResolvedValue({
+        content: '# Priority\n\n- [ ] External\n\n# Other\n\n# Done\n',
+        version: 'v2'
+      });
+      await wrapper.findAll('.tabs button').find(button => button.text() === 'Markdown').trigger('click');
+      await vi.runAllTimersAsync();
+
+      expect(saveTodoContent).not.toHaveBeenCalled();
+      const markdownEditor = wrapper.find('[aria-label="Markdown editor"]');
+      expect(markdownEditor.attributes('readonly')).toBeDefined();
+      expect(markdownEditor.element.value).toContain('Original');
+      expect(markdownEditor.element.value).not.toContain('External');
+      expect(wrapper.text()).toContain('Save or cancel the active task edit');
+
+      await wrapper.findAll('.tabs button').find(button => button.text() === 'Tasks').trigger('click');
+      expect(taskInput.element.value).toBe('Draft edit');
+      expect(taskInput.attributes('aria-label')).toBe('Edit task');
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('finishes a pending Markdown save before starting a task edit', async () => {
+    vi.useFakeTimers();
+    try {
+      loadTodoContent.mockResolvedValue({
+        content: '# Priority\n\n- [ ] First\n- [ ] Second\n\n# Other\n\n# Done\n',
+        version: 'v1'
+      });
+      saveTodoContent.mockImplementation(async (content) => ({
+        content,
+        version: 'v2'
+      }));
+      const wrapper = mount(App);
+      await vi.runAllTimersAsync();
+
+      await wrapper.findAll('.tabs button').find(button => button.text() === 'Markdown').trigger('click');
+      const markdownEditor = wrapper.find('[aria-label="Markdown editor"]');
+      await markdownEditor.setValue(
+        '# Priority\n\n- [ ] First\n- [ ] Second\n\n# Other\n\n- [ ] Added in Markdown\n\n# Done\n'
+      );
+      await wrapper.findAll('.tabs button').find(button => button.text() === 'Tasks').trigger('click');
+
+      const secondTask = wrapper.findAll('li.task-item')[1];
+      await secondTask.trigger('click', { metaKey: true });
+      await flushPromises();
+      await vi.runAllTimersAsync();
+
+      const taskInput = wrapper.find('.add-task textarea');
+      expect(taskInput.element.value).toBe('Second');
+      await taskInput.setValue('Edited second');
+      await wrapper.find('.add-task .btn-primary').trigger('click');
+      await flushPromises();
+
+      expect(saveTodoContent).toHaveBeenCalledTimes(2);
+      expect(saveTodoContent.mock.calls.at(-1)[0]).toContain('- [ ] First\n- [ ] Edited second');
+      expect(saveTodoContent.mock.calls.at(-1)[0]).toContain('- [ ] Added in Markdown');
       wrapper.unmount();
     } finally {
       vi.useRealTimers();

@@ -209,10 +209,14 @@
     <div v-show="activeTab === 'editor'" id="editor-panel" role="tabpanel">
       <div class="markdown-editor">
         <h2>Markdown Editor</h2>
+        <p v-if="editState.isEditing" class="warning" role="status">
+          Save or cancel the active task edit before changing Markdown.
+        </p>
         <textarea
           v-model="markdownContent"
           v-edit-history
           aria-label="Markdown editor"
+          :readonly="editState.isEditing"
           @input="handleMarkdownInput"
           @keydown="handleFormattingShortcut"
           @paste="handleMarkdownPaste"
@@ -411,6 +415,11 @@ import { handleMarkdownPaste } from './utils/markdownPaste.js';
 import { vEditHistory } from './utils/editHistory.js';
 import { AUTO_SAVE_DELAY_MS } from './constants.js';
 import { useConflictDialogQueue } from './composables/useConflictDialogQueue.js';
+import {
+  safeStorageGet,
+  safeStorageRemove,
+  safeStorageSet
+} from './utils/safeSessionStorage.js';
 
 // Configure marked for inline rendering
 marked.setOptions({
@@ -427,6 +436,7 @@ const taskInputRef = ref(null); // Reference to the task input textarea
 const hasInitialFocusBeenApplied = ref(false); // Track if initial auto-focus has been applied
 let eventSource = null;
 let autoSaveTimer = null;
+let markdownSavePromise = null;
 const BACKUP_RESTORE_DRAFT_KEY = 'todo-page-backup-restore-draft:todo';
 
 // Composables
@@ -655,6 +665,19 @@ async function handleEditTask(listType, index, taskText) {
 }
 
 async function editTaskInTextBox(listType, taskIndex, taskText) {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+  if (markdownSavePromise || dirty.value) {
+    const saved = await saveMarkdown();
+    if (!saved) return;
+    const refreshedList = getTaskList(listType, getTaskLists());
+    if (refreshedList[taskIndex] !== taskText) {
+      error.value = 'The task list changed while Markdown was being saved. Select the task again to edit the latest version.';
+      return;
+    }
+  }
   startEdit(listType, taskIndex, taskText);
 }
 
@@ -680,7 +703,7 @@ async function handleMoveToPriority() {
 
 // Backup preview handlers
 function preserveBackupRestoreDraft() {
-  sessionStorage.setItem(BACKUP_RESTORE_DRAFT_KEY, JSON.stringify({
+  safeStorageSet(BACKUP_RESTORE_DRAFT_KEY, JSON.stringify({
     content: markdownContent.value,
     taskInput: newTask.value,
     editState: editState.value,
@@ -689,11 +712,11 @@ function preserveBackupRestoreDraft() {
     resolving: resolving.value,
     unresolved: unresolved.value,
     capturedAt: new Date().toISOString()
-  }));
+  }), noteBackupStorageFailure);
 }
 
 function readBackupRestoreDraft() {
-  const stored = sessionStorage.getItem(BACKUP_RESTORE_DRAFT_KEY);
+  const stored = safeStorageGet(BACKUP_RESTORE_DRAFT_KEY, noteBackupStorageFailure);
   if (!stored) return null;
   try {
     const draft = JSON.parse(stored);
@@ -704,6 +727,11 @@ function readBackupRestoreDraft() {
   } catch {
     return null;
   }
+}
+
+function noteBackupStorageFailure(message, failure) {
+  if (!error.value) error.value = message;
+  console.warn('Could not access backup recovery storage:', failure);
 }
 
 function refreshBackupRecoveryDraft() {
@@ -733,12 +761,12 @@ function handleRestoreBackupDraft() {
   activeTab.value = draft.preferredTab === 'tasks' || draft.taskInput
     ? 'tasks'
     : 'editor';
-  sessionStorage.removeItem(BACKUP_RESTORE_DRAFT_KEY);
+  safeStorageRemove(BACKUP_RESTORE_DRAFT_KEY, noteBackupStorageFailure);
   backupRecoveryDraft.value = null;
 }
 
 function handleDiscardBackupDraft() {
-  sessionStorage.removeItem(BACKUP_RESTORE_DRAFT_KEY);
+  safeStorageRemove(BACKUP_RESTORE_DRAFT_KEY, noteBackupStorageFailure);
   backupRecoveryDraft.value = null;
 }
 
@@ -811,13 +839,22 @@ function handleCancelBackup() {
 
 // Markdown Editor
 async function saveMarkdown() {
-  try {
-    error.value = '';
-    await saveContent(markdownContent.value);
-  } catch (err) {
-    error.value = `Error saving markdown: ${err.message}`;
-    console.error('Error saving markdown:', err);
-  }
+  if (markdownSavePromise) return markdownSavePromise;
+  const content = markdownContent.value;
+  markdownSavePromise = (async () => {
+    try {
+      error.value = '';
+      await saveContent(content);
+      return true;
+    } catch (err) {
+      error.value = `Error saving markdown: ${err.message}`;
+      console.error('Error saving markdown:', err);
+      return false;
+    } finally {
+      markdownSavePromise = null;
+    }
+  })();
+  return markdownSavePromise;
 }
 
 function handleMarkdownInput() {
@@ -849,7 +886,10 @@ watch(activeTab, (tab) => {
   if (tab === 'tasks') {
     nextTick(adjustTaskInputHeight);
   } else if (tab === 'editor') {
-    if (!dirty.value && !resolving.value && !editState.value.isEditing) {
+    if (editState.value.isEditing) {
+      return;
+    }
+    if (!dirty.value && !resolving.value) {
       loadTasks();
     } else if (externalChange.value && !resolving.value) {
       saveMarkdown();

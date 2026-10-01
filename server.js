@@ -7,7 +7,6 @@ import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import helmet from 'helmet';
-import { createHash } from 'crypto';
 import {
   MAX_BODY_SIZE,
   MAX_TODO_SIZE,
@@ -28,7 +27,8 @@ import {
   BackupError,
   conditionalAtomicWrite,
   ensureVersionedFileExists,
-  readVersionedFile
+  readVersionedFile,
+  resolveVersionedFilePath
 } from './server/versionedFile.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -116,8 +116,10 @@ async function getTodoFilePath() {
   return filePath;
 }
 
-// Initialize TODO file path
-const TODO_FILE_PATH = await getTodoFilePath();
+// Keep the configured path for companion files and backups, while using the
+// resolved target for versioned I/O so atomic replacement preserves symlinks.
+const CONFIGURED_TODO_FILE_PATH = await getTodoFilePath();
+const TODO_FILE_PATH = await resolveVersionedFilePath(CONFIGURED_TODO_FILE_PATH, 'todo');
 
 console.log(`Using todo file at: ${TODO_FILE_PATH}`);
 
@@ -148,19 +150,89 @@ async function getLinksFilePath(todoFilePath) {
 }
 
 // Initialize links file path
-const LINKS_FILE_PATH = await getLinksFilePath(TODO_FILE_PATH);
+const LINKS_FILE_PATH = await resolveVersionedFilePath(
+  await getLinksFilePath(CONFIGURED_TODO_FILE_PATH),
+  'links'
+);
 
 console.log(`Using links file at: ${LINKS_FILE_PATH}`);
 
-function legacyLinkId({ categoryName, link, categoryIndex, linkIndex }) {
-  const identity = JSON.stringify([
-    categoryName,
-    link?.url,
-    link?.description,
-    categoryIndex,
-    linkIndex
-  ]);
-  return `legacy-${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
+function hasLegacyLinks(categories) {
+  return categories.some((category) =>
+    Array.isArray(category?.links)
+    && category.links.some((link) => typeof link?.id !== 'string' || !link.id)
+  );
+}
+
+async function readLinksFile({ migrateLegacy = true } = {}) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const current = await readVersionedFile(LINKS_FILE_PATH);
+    let parsed;
+    try {
+      parsed = JSON.parse(current.content);
+    } catch (error) {
+      return {
+        invalid: true,
+        rawContent: current.content,
+        version: current.version,
+        error: `links.json contains invalid JSON: ${error.message}`
+      };
+    }
+
+    const validation = sanitizeLinkCategories(parsed);
+    if (!validation.isValid) {
+      return {
+        invalid: true,
+        rawContent: current.content,
+        version: current.version,
+        error: validation.error
+      };
+    }
+    if (!migrateLegacy || !hasLegacyLinks(parsed)) {
+      return {
+        invalid: false,
+        categories: validation.value,
+        rawContent: current.content,
+        version: current.version
+      };
+    }
+
+    const serialized = JSON.stringify(validation.value, null, 2);
+    const result = await conditionalAtomicWrite({
+      resource: 'links',
+      filePath: LINKS_FILE_PATH,
+      baseVersion: current.version,
+      content: serialized,
+      validateCurrent: ({ content }) => {
+        try {
+          const latest = sanitizeLinkCategories(JSON.parse(content));
+          return latest.isValid
+            ? { ok: true }
+            : { ok: false, error: latest.error };
+        } catch (error) {
+          return { ok: false, error: `links.json contains invalid JSON: ${error.message}` };
+        }
+      },
+      createBackup: (previousContent) => createResourceBackup(LINKS_FILE_PATH, previousContent)
+    });
+    if (result.status === 'written') {
+      return {
+        invalid: false,
+        categories: validation.value,
+        rawContent: result.written.content,
+        version: result.written.version
+      };
+    }
+    if (result.status === 'rejected') {
+      return {
+        invalid: true,
+        rawContent: result.latest.content,
+        version: result.latest.version,
+        error: result.error
+      };
+    }
+  }
+  throw new Error('Links changed repeatedly while assigning durable link IDs');
 }
 
 // Ensure the file exists
@@ -211,7 +283,7 @@ app.post('/api/todo', fileOperationLimiter, async (req, res) => {
       filePath: TODO_FILE_PATH,
       baseVersion,
       content,
-      createBackup: (previousContent) => createBackup(TODO_FILE_PATH, previousContent)
+      createBackup: (previousContent) => createBackup(CONFIGURED_TODO_FILE_PATH, previousContent)
     });
 
     if (result.status === 'conflict') {
@@ -234,7 +306,7 @@ app.post('/api/todo', fileOperationLimiter, async (req, res) => {
 // List the most recent backups (newest first)
 app.get('/api/backups', fileOperationLimiter, async (req, res) => {
   try {
-    const backups = await listBackups(TODO_FILE_PATH);
+    const backups = await listBackups(CONFIGURED_TODO_FILE_PATH);
     res.json({ backups });
   } catch (error) {
     console.error('Error listing backups:', error);
@@ -246,7 +318,7 @@ app.get('/api/backups', fileOperationLimiter, async (req, res) => {
 app.get('/api/backups/:filename', fileOperationLimiter, async (req, res) => {
   try {
     const { filename } = req.params;
-    const content = await readBackup(TODO_FILE_PATH, filename);
+    const content = await readBackup(CONFIGURED_TODO_FILE_PATH, filename);
     if (content === null) {
       return res.status(404).json({ error: 'Backup not found' });
     }
@@ -275,32 +347,23 @@ async function ensureLinksFileExists() {
 app.get('/api/links', fileOperationLimiter, async (req, res) => {
   try {
     await ensureLinksFileExists();
-    const { content: rawContent, version } = await readVersionedFile(LINKS_FILE_PATH);
-
-    let parsed;
-    try {
-      parsed = JSON.parse(rawContent);
-    } catch (error) {
+    const loaded = await readLinksFile();
+    if (loaded.invalid) {
       return res.json({
         categories: null,
-        rawContent,
-        version,
+        rawContent: loaded.rawContent,
+        version: loaded.version,
         invalid: true,
-        error: `links.json contains invalid JSON: ${error.message}`
-      });
-    }
-    const validation = sanitizeLinkCategories(parsed, legacyLinkId);
-    if (!validation.isValid) {
-      return res.json({
-        categories: null,
-        rawContent,
-        version,
-        invalid: true,
-        error: validation.error
+        error: loaded.error
       });
     }
 
-    res.json({ categories: validation.value, rawContent, version, invalid: false });
+    res.json({
+      categories: loaded.categories,
+      rawContent: loaded.rawContent,
+      version: loaded.version,
+      invalid: false
+    });
   } catch (error) {
     console.error('Error reading links file:', error);
     res.status(500).json({ error: 'Failed to read links file' });
@@ -351,7 +414,7 @@ app.post('/api/links', fileOperationLimiter, async (req, res) => {
       let invalid = false;
       let latestError = '';
       try {
-        const latestValidation = sanitizeLinkCategories(JSON.parse(result.latest.content), legacyLinkId);
+        const latestValidation = sanitizeLinkCategories(JSON.parse(result.latest.content));
         if (latestValidation.isValid) latestCategories = latestValidation.value;
         else {
           invalid = true;
@@ -518,6 +581,7 @@ app.get(['/api/watch', '/api/todo/watch'], fileOperationLimiter, (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   changeClients.push(res);
+  res.flushHeaders?.();
 
   req.on('close', () => {
     changeClients = changeClients.filter(client => client !== res);

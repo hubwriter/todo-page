@@ -129,8 +129,27 @@ describe('setupFileWatcher', () => {
 
     setHidden(false);
     expect(openStreams()).toHaveLength(1);
-    // Resync so changes made while disconnected are not missed.
-    expect(cb).toHaveBeenCalled();
+    expect(cb).not.toHaveBeenCalled();
+    instances.at(-1).onopen();
+    expect(cb).toHaveBeenCalledWith({ resource: null, version: null, resync: true });
+  });
+
+  it('resyncs exactly once when initialized hidden and first made visible', () => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    const cb = vi.fn();
+    makeWatcher(cb);
+    expect(openStreams()).toHaveLength(0);
+
+    setHidden(false);
+    expect(openStreams()).toHaveLength(1);
+    expect(cb).not.toHaveBeenCalled();
+
+    instances[0].onopen();
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith({ resource: null, version: null, resync: true });
+
+    instances[0].onopen();
+    expect(cb).toHaveBeenCalledTimes(1);
   });
 
   it('does not reconnect after being closed', () => {

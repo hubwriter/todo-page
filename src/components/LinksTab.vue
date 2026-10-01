@@ -166,6 +166,11 @@ import { normalizeUrl } from '../utils/linkUtils.js';
 import { handleFormattingShortcut } from '../utils/formattingShortcuts.js';
 import { handleMarkdownPaste } from '../utils/markdownPaste.js';
 import { vEditHistory } from '../utils/editHistory.js';
+import {
+  safeStorageGet,
+  safeStorageRemove,
+  safeStorageSet
+} from '../utils/safeSessionStorage.js';
 import { DEFAULT_LINK_CATEGORY } from '../constants.js';
 
 const props = defineProps({
@@ -201,15 +206,20 @@ const RECOVERY_DRAFT_KEY = 'todo-page-links-recovery';
 const recoveryText = ref('');
 const recoveryDirty = ref(false);
 
+function noteRecoveryStorageFailure(message, failure) {
+  if (!error.value) error.value = message;
+  console.warn('Could not access Links recovery storage:', failure);
+}
+
 function clearRecoveryDraft() {
   recoveryText.value = '';
   recoveryDirty.value = false;
-  sessionStorage.removeItem(RECOVERY_DRAFT_KEY);
+  safeStorageRemove(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
 }
 
 watch(invalidContent, (value) => {
   if (recoveryDirty.value) return;
-  const stored = sessionStorage.getItem(RECOVERY_DRAFT_KEY);
+  const stored = safeStorageGet(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
   if (value && stored) {
     try {
       const draft = JSON.parse(stored);
@@ -219,7 +229,7 @@ watch(invalidContent, (value) => {
         return;
       }
     } catch {
-      sessionStorage.removeItem(RECOVERY_DRAFT_KEY);
+      safeStorageRemove(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
     }
   }
   recoveryText.value = value;
@@ -418,9 +428,9 @@ async function handleReplaceInvalid() {
     await replaceInvalidRaw(recoveryText.value);
   } catch (replacementFailure) {
     recoveryDirty.value = true;
-    sessionStorage.setItem(RECOVERY_DRAFT_KEY, JSON.stringify({
+    safeStorageSet(RECOVERY_DRAFT_KEY, JSON.stringify({
       text: recoveryText.value
-    }));
+    }), noteRecoveryStorageFailure);
     console.error('Error replacing invalid links file:', replacementFailure);
     error.value = replacementFailure.userMessage
       || error.value
@@ -431,12 +441,12 @@ async function handleReplaceInvalid() {
 function handleRecoveryInput() {
   recoveryDirty.value = recoveryText.value !== invalidContent.value;
   if (!recoveryDirty.value) {
-    sessionStorage.removeItem(RECOVERY_DRAFT_KEY);
+    safeStorageRemove(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
     return;
   }
-  sessionStorage.setItem(RECOVERY_DRAFT_KEY, JSON.stringify({
+  safeStorageSet(RECOVERY_DRAFT_KEY, JSON.stringify({
     text: recoveryText.value
-  }));
+  }), noteRecoveryStorageFailure);
 }
 
 function hasUnsavedForm() {

@@ -70,7 +70,7 @@ export async function saveTodoContent(content, baseVersion) {
 export function setupFileWatcher(onChangeCallback) {
   let eventSource = null;
   let reconnectTimer = null;
-  let resyncOnReconnect = false;
+  let resyncOnReconnect = document.hidden;
   let closed = false;
 
   const resync = () => {
@@ -131,9 +131,6 @@ export function setupFileWatcher(onChangeCallback) {
       return;
     }
     connect();
-    // Preserve immediate visibility resync while onopen handles outage
-    // reconnects where the stream may be unavailable for an extended gap.
-    resync();
   };
 
   document.addEventListener('visibilitychange', handleVisibilityChange);

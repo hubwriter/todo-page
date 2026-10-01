@@ -206,6 +206,25 @@ describe('useConflictAwareSave', () => {
     expect(coordinator.error.value).toContain('save again');
   });
 
+  it('keeps markDirty and saves functional when sessionStorage quota is exceeded', async () => {
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      });
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saveRemote = vi.fn(async (content) => ({ content, version: 'v2' }));
+    const coordinator = createCoordinator(saveRemote);
+    coordinator.initialize({ content: 'base', version: 'v1' });
+
+    expect(() => coordinator.markDirty('candidate')).not.toThrow();
+    await expect(coordinator.save('candidate')).resolves.toBe('candidate');
+    expect(saveRemote).toHaveBeenCalledWith('candidate', 'v1', {});
+    expect(coordinator.recoveryWarning.value).toContain('Keep this tab open');
+
+    storageSpy.mockRestore();
+    consoleSpy.mockRestore();
+  });
+
   it('restores an unresolved conflict workflow after a same-tab reload', async () => {
     const merge = () => ({
       conflicts: [

@@ -6,6 +6,12 @@ import {
   resourceSaveUserMessage
 } from '../api/resourceErrors.js';
 import { closeConflictDialog, queueConflictDialog } from './useConflictDialogQueue.js';
+import {
+  safeStorageGet,
+  safeStorageKeys,
+  safeStorageRemove,
+  safeStorageSet
+} from '../utils/safeSessionStorage.js';
 
 const DRAFT_PREFIX = 'todo-page-conflict:';
 let unloadInstalled = false;
@@ -18,7 +24,7 @@ function installUnloadWarning() {
   if (unloadInstalled || typeof window === 'undefined') return;
   unloadInstalled = true;
   window.addEventListener('beforeunload', (event) => {
-    const hasDraft = Object.keys(sessionStorage).some((key) => key.startsWith(DRAFT_PREFIX));
+    const hasDraft = safeStorageKeys().some((key) => key.startsWith(DRAFT_PREFIX));
     if (!hasDraft) return;
     event.preventDefault();
     event.returnValue = '';
@@ -48,6 +54,7 @@ export function useConflictAwareSave({
   const unresolved = ref(false);
   const contention = ref('');
   const error = ref('');
+  const recoveryWarning = ref('');
   const preserveCandidateOnFailure = ref(false);
   const inFlight = ref(false);
   const pendingOperations = ref(0);
@@ -61,6 +68,11 @@ export function useConflictAwareSave({
   let saveQueue = Promise.resolve();
   const resourceName = resource === 'todo' ? 'Tasks and Markdown' : 'Links';
   let focusReturnTarget = null;
+
+  function noteStorageFailure(message, failure) {
+    recoveryWarning.value = message;
+    console.warn(`Could not access ${resource} recovery storage:`, failure);
+  }
 
   function clearFocusReturnTarget() {
     focusReturnTarget = null;
@@ -96,13 +108,13 @@ export function useConflictAwareSave({
 
   function persistDraft(conflicts = [], dialogState = {}) {
     if (!dirty.value && !resolving.value) {
-      sessionStorage.removeItem(draftKey);
+      safeStorageRemove(draftKey, noteStorageFailure);
       return;
     }
     const draftState = resolvedUnsaved
       ? 'resolved'
       : (resolving.value || unresolved.value ? 'conflicts' : 'dirty');
-    sessionStorage.setItem(draftKey, JSON.stringify({
+    safeStorageSet(draftKey, JSON.stringify({
       resource,
       state: draftState,
       baseSnapshot: baseSnapshot.value,
@@ -117,7 +129,7 @@ export function useConflictAwareSave({
           id, label, resolution, resolved
         }))
         : []
-    }));
+    }), noteStorageFailure);
   }
 
   function setResolvedCandidate(candidate, options = {}) {
@@ -155,7 +167,7 @@ export function useConflictAwareSave({
     resolvedSaveOptions = {};
     closeConflictDialog(resource);
     clearFocusReturnTarget();
-    sessionStorage.removeItem(draftKey);
+    safeStorageRemove(draftKey, noteStorageFailure);
     return snapshot;
   }
 
@@ -390,7 +402,7 @@ export function useConflictAwareSave({
 
   function initialize(response) {
     const { snapshot: latestSnapshot, responseVersion: latestVersion } = responseState(response, 'load');
-    const stored = sessionStorage.getItem(draftKey);
+    const stored = safeStorageGet(draftKey, noteStorageFailure);
     if (!stored) return adopt(response);
 
     try {
@@ -446,7 +458,7 @@ export function useConflictAwareSave({
       }
       return clone(localCandidate.value);
     } catch {
-      sessionStorage.removeItem(draftKey);
+      safeStorageRemove(draftKey, noteStorageFailure);
       return adopt(response);
     }
   }
@@ -486,7 +498,7 @@ export function useConflictAwareSave({
     candidateRevision++;
     dirty.value = false;
     preserveCandidateOnFailure.value = false;
-    sessionStorage.removeItem(draftKey);
+    safeStorageRemove(draftKey, noteStorageFailure);
     onAccepted(clone(snapshot), { response, version: version.value });
     return snapshot;
   }
@@ -541,7 +553,7 @@ export function useConflictAwareSave({
     resolvedSaveOptions = {};
     closeConflictDialog(resource);
     clearFocusReturnTarget();
-    sessionStorage.removeItem(draftKey);
+    safeStorageRemove(draftKey, noteStorageFailure);
   }
 
   return {
@@ -554,6 +566,7 @@ export function useConflictAwareSave({
     unresolved,
     contention,
     error,
+    recoveryWarning,
     preserveCandidateOnFailure,
     inFlight,
     pendingOperations,
