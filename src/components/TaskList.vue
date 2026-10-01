@@ -24,17 +24,7 @@
           @change="handleCheckboxChange(index)"
           :aria-label="getCheckboxLabel(task)"
         />
-        <div class="task-text">
-          <span class="task-first-line" v-html="renderFirstLine(task)"></span>
-          <span v-if="hasMultipleLines(task)" class="task-continuation">
-            <span
-              v-for="(line, lineIndex) in getContinuationLines(task)"
-              :key="lineIndex"
-              class="task-indent"
-              v-html="renderLine(line)"
-            ></span>
-          </span>
-        </div>
+        <div class="task-text" v-html="renderMarkdown(task, { inline: false })"></div>
       </li>
     </ul>
   </section>
@@ -102,21 +92,6 @@ function getCheckboxLabel(task) {
   }
 }
 
-function hasMultipleLines(task) {
-  return task.includes('\n');
-}
-
-function renderFirstLine(task) {
-  return renderMarkdown(task.split('\n')[0]);
-}
-
-function getContinuationLines(task) {
-  return task.split('\n').slice(1);
-}
-
-function renderLine(line) {
-  return renderMarkdown(line);
-}
 </script>
 
 <style scoped>
@@ -124,12 +99,12 @@ function renderLine(line) {
   width: 100%;
 }
 
-.task-list h2 {
+.task-list > h2 {
   margin-top: 0;
   margin-bottom: 0.6rem;
 }
 
-.task-list ul {
+.task-list > ul {
   list-style: none;
   padding: 0;
   min-height: 80px;
@@ -166,8 +141,8 @@ function renderLine(line) {
 
 .task-text {
   flex: 1;
+  min-width: 0;
   word-wrap: break-word;
-  white-space: pre-wrap;
 }
 
 .task-text :deep(a) {
@@ -192,15 +167,51 @@ function renderLine(line) {
   vertical-align: middle;
 }
 
-.task-first-line {
-  display: block;
+.task-text :deep(p),
+.task-text :deep(ul),
+.task-text :deep(ol),
+.task-text :deep(pre),
+.task-text :deep(blockquote) {
+  margin: 0.5rem 0;
 }
 
-.task-continuation {
-  display: block;
+.task-text :deep(ul),
+.task-text :deep(ol) {
+  padding-left: 1.5rem;
 }
 
-.task-indent {
-  display: block;
+.task-text :deep(li > ul),
+.task-text :deep(li > ol) {
+  margin: 0;
+}
+
+.task-text :deep(> :first-child) {
+  margin-top: 0;
+}
+
+.task-text :deep(> :last-child) {
+  margin-bottom: 0;
+}
+
+.task-text :deep(pre) {
+  overflow-x: auto;
+  white-space: pre;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.task-text :deep(blockquote) {
+  padding-left: 0.75rem;
+  border-left: 3px solid #ccc;
+}
+
+.task-text :deep(table) {
+  border-collapse: collapse;
+}
+
+.task-text :deep(th),
+.task-text :deep(td) {
+  border: 1px solid #ccc;
+  padding: 0.25rem 0.5rem;
 }
 </style>

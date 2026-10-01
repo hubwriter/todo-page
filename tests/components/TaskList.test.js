@@ -3,6 +3,26 @@ import { mount } from '@vue/test-utils';
 import TaskList from '../../src/components/TaskList.vue';
 
 describe('TaskList', () => {
+  it('renders nested Markdown in a backup without enabling edit, drop, or completion', async () => {
+    const task = 'Backup:\n- Parent\n  - Child\n\n> Quoted text';
+    const wrapper = mount(TaskList, {
+      props: { listType: 'Priority', tasks: [task], readOnly: true }
+    });
+    try {
+      expect(wrapper.find('.task-text ul ul li').text()).toBe('Child');
+      expect(wrapper.find('.task-text blockquote').text()).toBe('Quoted text');
+      const child = wrapper.find('.task-text ul ul li');
+      await child.trigger('click', { ctrlKey: true });
+      await child.trigger('dblclick');
+      await child.trigger('drop');
+      await wrapper.find('input[type="checkbox"]').trigger('change');
+      expect(wrapper.emitted('edit-task')).toBeUndefined();
+      expect(wrapper.emitted('show-context-menu')).toBeUndefined();
+      expect(wrapper.emitted('drop')).toBeUndefined();
+      expect(wrapper.emitted('checkbox-change')).toBeUndefined();
+    } finally { wrapper.unmount(); }
+  });
+
   it('renders the list heading and tasks', () => {
     const wrapper = mount(TaskList, { props: { listType: 'Priority', tasks: ['Task A', 'Task B'] } });
     expect(wrapper.find('h2').text()).toBe('Priority');
@@ -17,10 +37,21 @@ describe('TaskList', () => {
     expect(a.attributes('href')).toBe('https://example.com');
   });
 
-  it('renders multi-line tasks with continuation lines', () => {
+  it('renders multi-line tasks with line breaks', () => {
     const wrapper = mount(TaskList, { props: { listType: 'Other', tasks: ['First line\nSecond line'] } });
-    expect(wrapper.find('.task-continuation').exists()).toBe(true);
+    expect(wrapper.find('.task-text p br').exists()).toBe(true);
     expect(wrapper.text()).toContain('Second line');
+  });
+
+  it('renders nested bullet lists within a single editable task', async () => {
+    const task = 'This should be a bullet list:\n- Point one\n- Point two\n  - Bullet list within a list point\n  - Another sub bullet point\n- Point three';
+    const wrapper = mount(TaskList, { props: { listType: 'Priority', tasks: [task] } });
+    expect(wrapper.findAll('li.task-item')).toHaveLength(1);
+    expect(wrapper.findAll('.task-text > ul > li')).toHaveLength(3);
+    expect(wrapper.findAll('.task-text > ul > li:nth-child(2) > ul > li').map(li => li.text()))
+      .toEqual(['Bullet list within a list point', 'Another sub bullet point']);
+    await wrapper.find('.task-text ul ul li').trigger('click', { metaKey: true });
+    expect(wrapper.emitted('edit-task')[0]).toEqual(['Priority', 0, task]);
   });
 
   it('checkbox is checked for Done and unchecked otherwise', () => {

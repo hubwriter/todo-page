@@ -1,4 +1,4 @@
-<!-- Last edited by GitHub Copilot on 2026-07-28. -->
+<!-- Last edited by GitHub Copilot on 2026-10-01T09:47:47+01:00. -->
 # Markdown-driven to-do list web app
 
 A Vue 3 + Vite web application for managing to-do lists with markdown file synchronization. Edit tasks in the browser or directly in the markdown file - changes are reflected instantly in both places. It also includes a **Links** tab for keeping categorised bookmarks.
@@ -148,6 +148,41 @@ The app will be available at http://localhost:3000 after login.
 4. Changes are automatically saved to the markdown file
 
 **Tip**: You can use markdown formatting in tasks, including links and multi-line content!
+
+Select text and press **Cmd+B** for bold or **Cmd+I** for italics on macOS.
+On Windows/Linux, use **Ctrl+B** or **Ctrl+I**. These shortcuts insert Markdown
+formatting in task text, the Markdown editor, and link descriptions.
+
+Paste a URL over selected text in any of these fields to create a Markdown link.
+For example, selecting `this website` and pasting `https://www.bbc.co.uk/news`
+produces `[this website](https://www.bbc.co.uk/news)`. Supported URL schemes are
+`https://`, `http://`, `file://`, `ftp://`, `ftps://`, `mailto:`, and `tel:`.
+Other clipboard content replaces the selection normally. With no selection,
+pasting also behaves normally.
+
+Undo edits with **Cmd+Z** on macOS or **Ctrl+Z** on Windows/Linux. Redo with
+**Shift+Cmd+Z** on macOS or **Ctrl+Y** / **Ctrl+Shift+Z** on Windows/Linux.
+Each editing field keeps its own history, including typing, deletion, formatting,
+and pasted links. Consecutive typing is grouped into undo steps. A new edit after
+undo clears the redo history. Saving or canceling an entry, or opening another
+entry, starts a fresh history. Markdown editor autosaves retain its history.
+
+Task entries also support block Markdown, including nested bullet and numbered
+lists, paragraphs, headings, block quotes, code blocks, and tables. For example:
+
+```markdown
+This should be a bullet list:
+- Point one
+- Point two
+  - Bullet list within a list point
+  - Another sub bullet point
+- Point three
+```
+
+Indent nested list items with spaces. Indentation and blank lines inside a task
+are preserved when you save and reopen it. In the Markdown tab or the backing
+file, continuation lines have a two-space storage prefix in addition to their
+Markdown indentation. Keep that prefix when editing the raw file.
 
 ### Context menu (double-click)
 
