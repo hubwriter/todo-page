@@ -4,6 +4,8 @@ import os from 'os';
 import { join } from 'path';
 import {
   createBackup,
+  createBackupBeforeWrite,
+  createResourceBackup,
   listBackups,
   listBackupFiles,
   readBackup,
@@ -31,6 +33,15 @@ describe('server/backups', () => {
     expect(content).toBe('hello');
   });
 
+  it.each([
+    ['todo', async () => createBackup(todoPath, 'private todo')],
+    ['links', async () => createResourceBackup(todoPath, 'private links')]
+  ])('preserves restrictive source permissions for %s backups', async (_resource, create) => {
+    await fs.chmod(todoPath, 0o600);
+    const name = await create();
+    expect((await fs.stat(join(dir, name))).mode & 0o777).toBe(0o600);
+  });
+
   it('avoids overwriting when two backups share the same second', async () => {
     const first = await createBackup(todoPath, 'first', new Date(2026, 6, 28, 14, 30, 52));
     const second = await createBackup(todoPath, 'second', new Date(2026, 6, 28, 14, 30, 52));
@@ -39,6 +50,23 @@ describe('server/backups', () => {
     expect(second).toBe('todo-backup-20260728T143053.md');
     expect(await fs.readFile(join(dir, first), 'utf-8')).toBe('first');
     expect(await fs.readFile(join(dir, second), 'utf-8')).toBe('second');
+  });
+
+  it('backs up the previous content before a changed file is written', async () => {
+    await fs.writeFile(todoPath, 'previous content', 'utf-8');
+
+    const filename = await createBackupBeforeWrite(todoPath, 'new content');
+
+    expect(filename).toMatch(/^todo-backup-\d{8}T\d{6}\.md$/);
+    expect(await fs.readFile(join(dir, filename), 'utf-8')).toBe('previous content');
+    expect(await fs.readFile(todoPath, 'utf-8')).toBe('previous content');
+  });
+
+  it('does not create a backup when the content is unchanged', async () => {
+    await fs.writeFile(todoPath, 'same content', 'utf-8');
+
+    expect(await createBackupBeforeWrite(todoPath, 'same content')).toBeNull();
+    expect(await listBackupFiles(todoPath)).toEqual([]);
   });
 
   it('lists backups newest first with ISO timestamps', async () => {

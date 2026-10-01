@@ -1,18 +1,28 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount, flushPromises } from '@vue/test-utils';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 
 vi.mock('../../src/api/linksApi.js', () => ({
-  loadLinks: vi.fn(() => Promise.resolve([])),
-  saveLinks: vi.fn(() => Promise.resolve())
+  loadLinks: vi.fn(),
+  saveLinks: vi.fn()
 }));
 
 import { loadLinks, saveLinks } from '../../src/api/linksApi.js';
+import { ConflictError, RateLimitError, ResourceProtocolError } from '../../src/api/resourceErrors.js';
+import { useConflictDialogQueue } from '../../src/composables/useConflictDialogQueue.js';
 import LinksTab from '../../src/components/LinksTab.vue';
+
+enableAutoUnmount(afterEach);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  loadLinks.mockResolvedValue([]);
-  saveLinks.mockResolvedValue(undefined);
+  sessionStorage.clear();
+  loadLinks.mockResolvedValue({ categories: [], rawContent: '[]', version: 'v1', invalid: false });
+  saveLinks.mockImplementation(async (categories) => ({
+    categories,
+    rawContent: JSON.stringify(categories),
+    version: 'v2',
+    invalid: false
+  }));
 });
 
 async function fill(wrapper, { category, url, description }) {
@@ -123,10 +133,15 @@ describe('LinksTab', () => {
     ['ctrlKey', 'b', '**', 'strong'],
     ['ctrlKey', 'i', '_', 'em']
   ])('saves description formatting with %s + %s', async (modifier, key, marker, tag) => {
-    loadLinks.mockResolvedValue([{
-      name: 'GitHub',
-      links: [{ id: 'existing', url: 'https://github.com', description: 'The repo' }]
-    }]);
+    loadLinks.mockResolvedValue({
+      categories: [{
+        name: 'GitHub',
+        links: [{ id: 'existing', url: 'https://github.com', description: 'The repo' }]
+      }],
+      rawContent: '[]',
+      version: 'v1',
+      invalid: false
+    });
     const wrapper = mount(LinksTab);
     try {
       await flushPromises();
@@ -142,6 +157,34 @@ describe('LinksTab', () => {
       await flushPromises();
       expect(saveLinks.mock.calls.at(-1)[0][0].links[0].description).toBe(`The ${marker}repo${marker}`);
       expect(wrapper.find(`.link-description ${tag}`).text()).toBe('repo');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('preserves styled HTML when editing and saving a link description', async () => {
+    const description = 'I want <span style="color:green">this text</span> to be colored.';
+    loadLinks.mockResolvedValue({
+      categories: [{
+        name: 'GitHub',
+        links: [{ id: 'existing', url: 'https://github.com', description }]
+      }],
+      rawContent: '[]',
+      version: 'v1',
+      invalid: false
+    });
+    const wrapper = mount(LinksTab);
+    try {
+      await flushPromises();
+      await wrapper.find('.link-description').trigger('dblclick');
+      await wrapper.find('.context-menu-item').trigger('click');
+      const textarea = wrapper.find('#link-description');
+      expect(textarea.element.value).toBe(description);
+
+      await textarea.trigger('keydown', { key: 'Enter', metaKey: true });
+      await flushPromises();
+      expect(saveLinks.mock.calls.at(-1)[0][0].links[0].description).toBe(description);
+      expect(wrapper.find('.link-description span').element.style.color).toBe('green');
     } finally {
       wrapper.unmount();
     }
@@ -332,5 +375,301 @@ describe('LinksTab', () => {
     // Default is expanded and the handler skipped the button, so it stays open
     expect(wrapper.find('ul.link-box').element.style.display).not.toBe('none');
     wrapper.unmount();
+  });
+
+  it('shows invalid external JSON without replacing it with an empty list', async () => {
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '{"broken"',
+      version: 'v-bad',
+      invalid: true,
+      error: 'invalid JSON'
+    });
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    expect(wrapper.find('[aria-label="Invalid links JSON"]').element.value).toBe('{"broken"');
+    expect(wrapper.find('.empty-hint').exists()).toBe(false);
+    expect(saveLinks).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('shows repair controls for an empty invalid links file', async () => {
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '',
+      version: 'v-empty',
+      invalid: true,
+      error: 'links.json contains invalid JSON'
+    });
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+
+    expect(wrapper.find('.invalid-links').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Invalid links JSON"]').element.value).toBe('');
+    expect(wrapper.find('.add-link').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('preserves an invalid-JSON recovery draft across watcher events and remounts', async () => {
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '{"broken"',
+      version: 'v-bad',
+      invalid: true,
+      error: 'invalid JSON'
+    });
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    const recovery = wrapper.find('[aria-label="Invalid links JSON"]');
+    await recovery.setValue('[{"name":"Recovered","links":[]}');
+    const callsBeforeWatcher = loadLinks.mock.calls.length;
+
+    window.dispatchEvent(new CustomEvent('resource-version-change', {
+      detail: { resource: 'links', version: 'v-new' }
+    }));
+    await flushPromises();
+
+    expect(loadLinks).toHaveBeenCalledTimes(callsBeforeWatcher);
+    expect(recovery.element.value).toBe('[{"name":"Recovered","links":[]}');
+    expect(sessionStorage.getItem('todo-page-links-recovery')).toContain('Recovered');
+    wrapper.unmount();
+
+    const restored = mount(LinksTab);
+    await flushPromises();
+    expect(restored.find('[aria-label="Invalid links JSON"]').element.value)
+      .toBe('[{"name":"Recovered","links":[]}');
+    restored.unmount();
+  });
+
+  it('fetches the real Links version on resync without replacing unsaved form work', async () => {
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    await fill(wrapper, {
+      category: 'Draft',
+      url: 'https://draft.test',
+      description: 'Unsaved'
+    });
+    const callsBeforeResync = loadLinks.mock.calls.length;
+    loadLinks.mockResolvedValue({
+      categories: [],
+      rawContent: '[]',
+      version: 'v1',
+      invalid: false
+    });
+
+    window.dispatchEvent(new CustomEvent('resource-version-change', {
+      detail: { resource: null, version: null, resync: true }
+    }));
+    await flushPromises();
+
+    expect(loadLinks).toHaveBeenCalledTimes(callsBeforeResync + 1);
+    expect(wrapper.find('#link-url').element.value).toBe('https://draft.test');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('keeps invalid recovery editing functional when sessionStorage quota is exceeded', async () => {
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '{"broken"',
+      version: 'v-bad',
+      invalid: true,
+      error: 'invalid JSON'
+    });
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      });
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+
+    const repaired = '[{"name":"Recovered","links":[]}]';
+    await expect(wrapper.find('[aria-label="Invalid links JSON"]').setValue(repaired))
+      .resolves.toBeUndefined();
+    expect(wrapper.find('[aria-label="Invalid links JSON"]').element.value).toBe(repaired);
+    expect(wrapper.find('[role="alert"]').text()).toContain('Keep this tab open');
+    await wrapper.find('.invalid-links .btn-primary').trigger('click');
+    await flushPromises();
+    expect(saveLinks).toHaveBeenCalled();
+
+    wrapper.unmount();
+    storageSpy.mockRestore();
+    consoleSpy.mockRestore();
+  });
+
+  it('warns before unloading with an edited invalid-JSON recovery draft', async () => {
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '{"broken"',
+      version: 'v-bad',
+      invalid: true
+    });
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    await wrapper.find('[aria-label="Invalid links JSON"]').setValue('{"still":"editing"}');
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('clears invalid recovery state when conflict resolution accepts a valid repair', async () => {
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '{"broken"',
+      version: 'v-bad',
+      invalid: true
+    });
+    saveLinks
+      .mockRejectedValueOnce(new ConflictError('stale', {
+        categories: null,
+        rawContent: '{"newer-broken"',
+        version: 'v-newer-bad',
+        invalid: true
+      }))
+      .mockImplementationOnce(async (categories) => ({
+        categories,
+        rawContent: JSON.stringify(categories),
+        version: 'v-repaired',
+        invalid: false
+      }));
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    const repaired = '[{"name":"Recovered","links":[]}]';
+    await wrapper.find('[aria-label="Invalid links JSON"]').setValue(repaired);
+
+    await wrapper.find('.invalid-links .btn-primary').trigger('click');
+    await flushPromises();
+    const active = useConflictDialogQueue().activeConflict.value;
+    expect(active).not.toBeNull();
+    active.conflicts[0].resolved = true;
+    await active.apply(active.conflicts, { replacementConfirmed: true });
+    await flushPromises();
+
+    expect(wrapper.vm.recoveryDirty).toBe(false);
+    expect(wrapper.vm.recoveryText).toBe('');
+    expect(sessionStorage.getItem('todo-page-links-recovery')).toBeNull();
+    expect(sessionStorage.getItem('todo-page-conflict:links')).toBeNull();
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(false);
+    wrapper.unmount();
+  });
+
+  it.each(['failed', 'canceled'])('preserves invalid recovery state when conflict resolution is %s', async outcome => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '{"broken"',
+      version: 'v-bad',
+      invalid: true
+    });
+    saveLinks.mockRejectedValueOnce(new ConflictError('stale', {
+      categories: null,
+      rawContent: '{"newer-broken"',
+      version: 'v-newer-bad',
+      invalid: true
+    }));
+    if (outcome === 'failed') saveLinks.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    const repaired = '[{"name":"Recovered","links":[]}]';
+    await wrapper.find('[aria-label="Invalid links JSON"]').setValue(repaired);
+
+    await wrapper.find('.invalid-links .btn-primary').trigger('click');
+    await flushPromises();
+    const active = useConflictDialogQueue().activeConflict.value;
+    expect(active).not.toBeNull();
+    active.conflicts[0].resolved = true;
+    if (outcome === 'failed') {
+      await expect(active.apply(active.conflicts, { replacementConfirmed: true }))
+        .rejects.toThrow('Failed to fetch');
+    } else {
+      active.cancel(active.conflicts);
+    }
+    await flushPromises();
+
+    expect(wrapper.vm.recoveryDirty).toBe(true);
+    expect(wrapper.vm.recoveryText).toBe(repaired);
+    expect(sessionStorage.getItem('todo-page-links-recovery')).toContain('Recovered');
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    if (outcome === 'failed') active.cancel(active.conflicts);
+    wrapper.unmount();
+    consoleSpy.mockRestore();
+  });
+
+  it.each([
+    [
+      'protocol',
+      new ResourceProtocolError('missing version', 'Restart the app server, then try again. Your edits are still here.'),
+      'Restart the app server'
+    ],
+    ['network', new TypeError('Failed to fetch'), 'Check your connection'],
+    ['rate limit', new RateLimitError('Too many requests.'), 'save again when ready'],
+    ['backup', Object.assign(new Error('Failed to create links backup'), { payload: { error: 'Failed to create links backup' } }), 'safety backup']
+  ])('keeps invalid recovery visible and retryable after a %s failure', async (_kind, failure, message) => {
+    if (_kind === 'rate limit') vi.useFakeTimers();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '{"broken"',
+      version: 'v-bad',
+      invalid: true
+    });
+    if (_kind === 'rate limit') saveLinks.mockRejectedValue(failure);
+    else saveLinks.mockRejectedValueOnce(failure);
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    const repaired = '[{"name":"Recovered","links":[]}]';
+    await wrapper.find('[aria-label="Invalid links JSON"]').setValue(repaired);
+
+    await wrapper.find('.invalid-links .btn-primary').trigger('click');
+    if (_kind === 'rate limit') await vi.runAllTimersAsync();
+    else await flushPromises();
+
+    expect(wrapper.find('.invalid-links').exists()).toBe(true);
+    expect(wrapper.find('[role="alert"]').text()).toContain(message);
+    expect(wrapper.find('[aria-label="Invalid links JSON"]').element.value).toBe(repaired);
+    expect(sessionStorage.getItem('todo-page-links-recovery')).toContain('Recovered');
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'Error replacing invalid links file:',
+      failure
+    );
+    wrapper.unmount();
+    consoleSpy.mockRestore();
+    if (_kind === 'rate limit') vi.useRealTimers();
+  });
+
+  it('keeps add form input after a failed save and retries without duplicates', async () => {
+    saveLinks
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockImplementationOnce(async (categories) => ({
+        categories,
+        rawContent: JSON.stringify(categories),
+        version: 'v2',
+        invalid: false
+      }));
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    await fill(wrapper, {
+      category: 'Docs',
+      url: 'https://retry.test',
+      description: 'Retry once'
+    });
+
+    await wrapper.find('.add-link .btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('#link-category').element.value).toBe('Docs');
+    expect(wrapper.find('#link-url').element.value).toBe('https://retry.test');
+    expect(wrapper.find('#link-description').element.value).toBe('Retry once');
+    expect(wrapper.findAll('.link-description')).toHaveLength(0);
+
+    await wrapper.find('.add-link .btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('.link-description')).toHaveLength(1);
+    expect(saveLinks.mock.calls.at(-1)[0][0].links).toHaveLength(1);
   });
 });

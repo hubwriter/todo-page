@@ -51,6 +51,33 @@
       </button>
     </div>
 
+    <div
+      v-if="backupRecoveryDraft && !backupPreview"
+      class="recovery-banner"
+      role="status"
+    >
+      <div>
+        <strong>Unsaved changes are available.</strong>
+        Restore the local draft that was kept when the backup replaced your tasks.
+      </div>
+      <div class="recovery-actions">
+        <button
+          @click="handleRestoreBackupDraft"
+          class="btn-primary"
+          aria-label="Restore unsaved changes"
+        >
+          Restore unsaved changes
+        </button>
+        <button
+          @click="handleDiscardBackupDraft"
+          class="btn-secondary"
+          aria-label="Discard saved draft"
+        >
+          Discard saved draft
+        </button>
+      </div>
+    </div>
+
     <!-- Tasks Tab -->
     <div v-show="activeTab === 'tasks'" id="tasks-panel" role="tabpanel">
       <!-- Backup preview: read-only view of a selected backup -->
@@ -93,6 +120,10 @@
 
       <!-- Normal (editable) tasks view -->
       <template v-else>
+      <div v-if="unresolved || externalChange || contention" class="conflict-banner" role="status">
+        <strong>Changes saved elsewhere.</strong>
+        {{ contention || 'Your local edits are preserved. Save again to merge or resolve them.' }}
+      </div>
       <!-- Add/Edit Task Form -->
       <div class="add-task">
         <textarea
@@ -178,10 +209,15 @@
     <div v-show="activeTab === 'editor'" id="editor-panel" role="tabpanel">
       <div class="markdown-editor">
         <h2>Markdown Editor</h2>
+        <p v-if="editState.isEditing" class="warning" role="status">
+          Save or cancel the active task edit before changing Markdown.
+        </p>
         <textarea
           v-model="markdownContent"
           v-edit-history
           aria-label="Markdown editor"
+          :readonly="editState.isEditing"
+          @input="handleMarkdownInput"
           @keydown="handleFormattingShortcut"
           @paste="handleMarkdownPaste"
         ></textarea>
@@ -324,8 +360,13 @@
         <p>To edit it directly <a :href="`vscode://file/Users/alistair/work-stuff/tech-writing/links.json`">click here</a>.</p>
         <p>
           Because the app watches these files, any edits you make outside the app
-          (in a text editor, for instance) appear here automatically, and your
-          edits in the app are written straight back to the same files.
+          (in a text editor, for instance) appear here automatically when the tab
+          is clean. Independent changes merge automatically. If the same content
+          changed in two places, the conflict dialog calls this tab's edit
+          <strong>Current change</strong> and the newest saved edit
+          <strong>Other change</strong>; resolve each step, then apply the result.
+          Restoring a backup over newer content always asks for explicit
+          confirmation instead of combining the two versions.
         </p>
 
         <h3>Project information</h3>
@@ -343,6 +384,12 @@
     <div v-show="activeTab === 'links'" id="links-panel" role="tabpanel">
       <LinksTab :active="activeTab === 'links'" />
     </div>
+
+    <ConflictResolutionDialog
+      v-if="activeConflict"
+      :key="activeConflict.revision"
+      :workflow="activeConflict"
+    />
   </div>
 </template>
 
@@ -353,10 +400,11 @@ import TaskList from './components/TaskList.vue';
 import ContextMenu from './components/ContextMenu.vue';
 import LinksTab from './components/LinksTab.vue';
 import BackupsTab from './components/BackupsTab.vue';
+import ConflictResolutionDialog from './components/ConflictResolutionDialog.vue';
 import { useTasks } from './composables/useTasks.js';
 import { useContextMenu } from './composables/useContextMenu.js';
 import { useTaskEditor } from './composables/useTaskEditor.js';
-import { setupFileWatcher, saveTodoContent } from './api/todoApi.js';
+import { setupFileWatcher } from './api/todoApi.js';
 import { loadBackupContent } from './api/backupsApi.js';
 import { generateMarkdownFromTasks, removeDateFromTask, parseMarkdownToTasks } from './utils/markdownUtils.js';
 import { parseBackupTimestamp } from './utils/backupUtils.js';
@@ -366,6 +414,12 @@ import { handleFormattingShortcut } from './utils/formattingShortcuts.js';
 import { handleMarkdownPaste } from './utils/markdownPaste.js';
 import { vEditHistory } from './utils/editHistory.js';
 import { AUTO_SAVE_DELAY_MS } from './constants.js';
+import { useConflictDialogQueue } from './composables/useConflictDialogQueue.js';
+import {
+  safeStorageGet,
+  safeStorageRemove,
+  safeStorageSet
+} from './utils/safeSessionStorage.js';
 
 // Configure marked for inline rendering
 marked.setOptions({
@@ -375,29 +429,46 @@ marked.setOptions({
 
 // State
 const activeTab = ref(getTabFromHash(window.location.hash));
-const markdownContent = ref('');
 const backupPreview = ref(null); // { filename, timestamp, content, priority, other, done } when previewing a backup
+const backupRecoveryDraft = ref(null);
 const draggedItem = ref(null);
-const isSavingLocally = ref(false); // Flag to prevent file watcher reload during our saves
 const taskInputRef = ref(null); // Reference to the task input textarea
 const hasInitialFocusBeenApplied = ref(false); // Track if initial auto-focus has been applied
 let eventSource = null;
 let autoSaveTimer = null;
+let markdownSavePromise = null;
+const BACKUP_RESTORE_DRAFT_KEY = 'todo-page-backup-restore-draft:todo';
 
 // Composables
 const {
   priorityTasks,
   otherTasks,
   doneTasks,
+  markdownContent,
   error,
+  version,
+  dirty,
+  resolving,
+  externalChange,
+  unresolved,
+  contention,
+  inFlight,
+  pendingOperations,
   loadTasks,
   saveTasks,
+  saveContent,
+  markContentDirty,
+  restoreLocalCandidate,
   completeTask,
   uncompleteTask,
   deleteTask,
   moveTaskBetweenSections,
+  replaceFromBackup,
+  snapshotTasks,
+  noteExternalVersion,
   getTaskLists
 } = useTasks();
+const { activeConflict } = useConflictDialogQueue();
 
 const {
   contextMenu,
@@ -412,12 +483,22 @@ const {
   editingTask,
   startEdit,
   cancelEdit,
+  restoreDraft: restoreTaskEditorDraft,
   getEditState,
   scrollToTask
 } = useTaskEditor();
 
 // Computed
 const editState = computed(() => getEditState());
+const hasLocalTodoWork = computed(() => (
+  Boolean(newTask.value.trim())
+  || editState.value.isEditing
+  || dirty.value
+  || resolving.value
+  || unresolved.value
+  || inFlight.value
+  || pendingOperations.value > 0
+));
 
 const backupPreviewLabel = computed(() => {
   if (!backupPreview.value) return '';
@@ -473,18 +554,6 @@ function adjustTaskInputHeight() {
   el.style.overflowY = desiredLines > maxLines ? 'auto' : 'hidden';
 }
 
-// Wrapper for saveTasks that prevents file watcher reload
-async function saveTasksWithoutReload() {
-  isSavingLocally.value = true;
-  try {
-    await saveTasks();
-    // Wait a bit for the file watcher event to be processed and ignored
-    await new Promise(resolve => setTimeout(resolve, 500));
-  } finally {
-    isSavingLocally.value = false;
-  }
-}
-
 // Task Management
 async function handleAddOrSave() {
   if (!newTask.value.trim()) return;
@@ -493,35 +562,41 @@ async function handleAddOrSave() {
 
   if (editState.value.isEditing) {
     // Editing mode: restore to original position
-    const { originalList, originalIndex } = editState.value;
+    const { originalList, originalIndex, originalText } = editState.value;
 
-    // Insert the edited task at its original position
+    // Replace the source task only when Save is pressed.
     const lists = getTaskLists();
     const targetList = getTaskList(originalList, lists);
-    targetList.splice(originalIndex, 0, taskText);
-
-    await saveTasksWithoutReload();
-    scrollToTask(originalList, originalIndex);
-    cancelEdit();
+    if (targetList[originalIndex] !== originalText) {
+      error.value = 'The original task changed while you were editing. Your draft is still here; select the latest task and apply your edit again.';
+      return;
+    }
+    const snapshot = snapshotTasks();
+    targetList.splice(originalIndex, 1, taskText);
+    try {
+      await saveTasks(snapshot);
+      scrollToTask(originalList, originalIndex);
+      cancelEdit();
+    } catch {
+      // saveTasks restored the optimistic insertion; keep the edit draft.
+    }
   } else {
     // Normal add: add to top of Priority
+    const snapshot = snapshotTasks();
     priorityTasks.value.unshift(taskText);
-    newTask.value = '';
-    await saveTasksWithoutReload();
+    try {
+      await saveTasks(snapshot);
+      newTask.value = '';
+    } catch {
+      // Keep the typed task so an ordinary failure never loses it.
+    }
   }
 }
 
 async function handleCancel() {
   if (editState.value.isEditing) {
-    // Restore original task
-    const { originalList, originalIndex, originalText } = editState.value;
-    if (originalText) {
-      const lists = getTaskLists();
-      const targetList = getTaskList(originalList, lists);
-      targetList.splice(originalIndex, 0, originalText);
-      await saveTasksWithoutReload();
-      scrollToTask(originalList, originalIndex);
-    }
+    const { originalList, originalIndex } = editState.value;
+    scrollToTask(originalList, originalIndex);
   }
   cancelEdit();
 }
@@ -594,16 +669,20 @@ async function handleEditTask(listType, index, taskText) {
 }
 
 async function editTaskInTextBox(listType, taskIndex, taskText) {
-  // Remove task from list
-  const lists = getTaskLists();
-  const sourceList = getTaskList(listType, lists);
-  sourceList.splice(taskIndex, 1);
-
-  // Start editing
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+  if (markdownSavePromise || dirty.value) {
+    const saved = await saveMarkdown();
+    if (!saved) return;
+    const refreshedList = getTaskList(listType, getTaskLists());
+    if (refreshedList[taskIndex] !== taskText) {
+      error.value = 'The task list changed while Markdown was being saved. Select the task again to edit the latest version.';
+      return;
+    }
+  }
   startEdit(listType, taskIndex, taskText);
-
-  // Save without triggering a reload
-  await saveTasksWithoutReload();
 }
 
 async function handleDelete() {
@@ -627,18 +706,91 @@ async function handleMoveToPriority() {
 }
 
 // Backup preview handlers
+function preserveBackupRestoreDraft() {
+  return safeStorageSet(BACKUP_RESTORE_DRAFT_KEY, JSON.stringify({
+    content: markdownContent.value,
+    taskInput: newTask.value,
+    editState: editState.value,
+    preferredTab: newTask.value.trim() || editState.value.isEditing ? 'tasks' : 'editor',
+    dirty: dirty.value,
+    resolving: resolving.value,
+    unresolved: unresolved.value,
+    capturedAt: new Date().toISOString()
+  }), noteBackupStorageFailure);
+}
+
+function readBackupRestoreDraft() {
+  const stored = safeStorageGet(BACKUP_RESTORE_DRAFT_KEY, noteBackupStorageFailure);
+  if (!stored) return null;
+  try {
+    const draft = JSON.parse(stored);
+    if (!draft || typeof draft.content !== 'string') return null;
+    const hasEditorDraft = typeof draft.taskInput === 'string' && draft.taskInput.length > 0;
+    if (draft.content === markdownContent.value && !hasEditorDraft) return null;
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+function noteBackupStorageFailure(message, failure) {
+  if (!error.value) error.value = message;
+  console.warn('Could not access backup recovery storage:', failure);
+}
+
+function refreshBackupRecoveryDraft() {
+  backupRecoveryDraft.value = readBackupRestoreDraft();
+}
+
+function restorableEditState(draft) {
+  const state = draft.editState;
+  if (!state?.isEditing || !Number.isInteger(state.originalIndex)) return null;
+  const targetList = getTaskList(state.originalList, getTaskLists());
+  if (!targetList || targetList[state.originalIndex] !== state.originalText) return null;
+  return state;
+}
+
+function handleRestoreBackupDraft() {
+  const draft = readBackupRestoreDraft();
+  if (!draft) {
+    backupRecoveryDraft.value = null;
+    return;
+  }
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+  restoreLocalCandidate(draft.content);
+  restoreTaskEditorDraft(draft.taskInput, restorableEditState(draft));
+  activeTab.value = draft.preferredTab === 'tasks' || draft.taskInput
+    ? 'tasks'
+    : 'editor';
+  safeStorageRemove(BACKUP_RESTORE_DRAFT_KEY, noteBackupStorageFailure);
+  backupRecoveryDraft.value = null;
+}
+
+function handleDiscardBackupDraft() {
+  safeStorageRemove(BACKUP_RESTORE_DRAFT_KEY, noteBackupStorageFailure);
+  backupRecoveryDraft.value = null;
+}
+
 async function handleViewBackup(filename) {
   try {
     error.value = '';
+    if (hasLocalTodoWork.value) {
+      preserveBackupRestoreDraft();
+      const approved = window.confirm(
+        'You have an unsaved task or Markdown draft. Preview this backup without changing that draft? Cancel returns to it exactly as it is.'
+      );
+      if (!approved) return;
+    }
     const content = await loadBackupContent(filename);
     const parsed = parseMarkdownToTasks(content);
-
-    // Cancel any in-progress edit before entering read-only preview mode.
-    if (editState.value.isEditing) cancelEdit();
 
     backupPreview.value = {
       filename,
       content,
+      previewVersion: version.value,
       priority: parsed.priority,
       other: parsed.other,
       done: parsed.done
@@ -653,21 +805,38 @@ async function handleViewBackup(filename) {
 async function handleUseBackup() {
   if (!backupPreview.value) return;
 
-  isSavingLocally.value = true;
   try {
     error.value = '';
-    await saveTodoContent(backupPreview.value.content);
-    // Return to the normal (editable) view immediately.
-    backupPreview.value = null;
-    // Give the file watcher event time to arrive and be ignored, then reload
-    // so the live task lists reflect the restored content.
-    await new Promise(resolve => setTimeout(resolve, 500));
-    await loadTasks();
+    if (hasLocalTodoWork.value) {
+      const preserved = preserveBackupRestoreDraft();
+      if (!preserved) {
+        error.value = 'The backup was not restored because your unsaved work could not be stored safely. Keep this tab open, save or discard your work, then try again.';
+        return;
+      }
+      const approved = window.confirm(
+        'You have unsaved task or Markdown work. Restore this backup and keep that draft in this browser for recovery? Cancel leaves the draft and preview unchanged.'
+      );
+      if (!approved) return;
+      if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = null;
+      }
+    }
+    const result = await replaceFromBackup(
+      backupPreview.value.content,
+      backupPreview.value.previewVersion,
+      () => Promise.resolve(window.confirm(
+        'The live tasks changed since this backup was previewed. Replace the newest content with this backup? The newest content will be backed up first.'
+      ))
+    );
+    if (result.replaced) {
+      backupPreview.value = null;
+      cancelEdit();
+      refreshBackupRecoveryDraft();
+    }
   } catch (err) {
     error.value = `Error restoring backup: ${err.message}`;
     console.error('Error restoring backup:', err);
-  } finally {
-    isSavingLocally.value = false;
   }
 }
 
@@ -678,23 +847,29 @@ function handleCancelBackup() {
 
 // Markdown Editor
 async function saveMarkdown() {
-  try {
-    error.value = '';
-    await saveTodoContent(markdownContent.value);
-    await loadTasks();
-  } catch (err) {
-    error.value = `Error saving markdown: ${err.message}`;
-    console.error('Error saving markdown:', err);
-  }
+  if (markdownSavePromise) return markdownSavePromise;
+  const content = markdownContent.value;
+  markdownSavePromise = (async () => {
+    try {
+      error.value = '';
+      await saveContent(content);
+      return true;
+    } catch (err) {
+      error.value = `Error saving markdown: ${err.message}`;
+      console.error('Error saving markdown:', err);
+      return false;
+    } finally {
+      markdownSavePromise = null;
+    }
+  })();
+  return markdownSavePromise;
 }
 
-// Auto-save markdown content with debouncing
-watch(markdownContent, (newValue, oldValue) => {
-  if (newValue !== oldValue && activeTab.value === 'editor') {
-    if (autoSaveTimer) clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(saveMarkdown, AUTO_SAVE_DELAY_MS);
-  }
-});
+function handleMarkdownInput() {
+  markContentDirty(markdownContent.value);
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(saveMarkdown, AUTO_SAVE_DELAY_MS);
+}
 
 // Watch tasks for markdown content sync
 watch([priorityTasks, otherTasks, doneTasks], () => {
@@ -718,6 +893,15 @@ watch(newTask, () => {
 watch(activeTab, (tab) => {
   if (tab === 'tasks') {
     nextTick(adjustTaskInputHeight);
+  } else if (tab === 'editor') {
+    if (editState.value.isEditing) {
+      return;
+    }
+    if (!dirty.value && !resolving.value) {
+      loadTasks();
+    } else if (externalChange.value && !resolving.value) {
+      saveMarkdown();
+    }
   }
 });
 
@@ -737,25 +921,37 @@ function handleHashChange() {
   }
 }
 
+function handleBeforeUnload(event) {
+  if (!newTask.value.trim() && !dirty.value && !resolving.value) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+
 // Lifecycle
 onMounted(async () => {
-  const content = await loadTasks();
-  markdownContent.value = content;
+  await loadTasks();
+  refreshBackupRecoveryDraft();
 
-  // Setup file watcher with a wrapper that checks if we're saving locally
-  eventSource = setupFileWatcher(() => {
-    // Only reload if we're not in the middle of a local save operation
-    if (!isSavingLocally.value) {
-      console.log('External file change detected, reloading...');
-      loadTasks();
-    } else {
-      console.log('Skipping reload - local save in progress');
+  eventSource = setupFileWatcher((notification) => {
+    if (notification.resync) {
+      loadTasks({ preserveLocal: dirty.value || resolving.value || editState.value.isEditing });
+      window.dispatchEvent(new CustomEvent('resource-version-change', { detail: notification }));
+      return;
     }
+    if (notification.resource === 'todo' && notification.version !== version.value) {
+      if (dirty.value || resolving.value || editState.value.isEditing) {
+        noteExternalVersion(notification.version);
+      } else {
+        loadTasks();
+      }
+    }
+    window.dispatchEvent(new CustomEvent('resource-version-change', { detail: notification }));
   });
 
   window.addEventListener('keydown', handleEscKey);
   window.addEventListener('hashchange', handleHashChange);
   window.addEventListener('resize', adjustTaskInputHeight);
+  window.addEventListener('beforeunload', handleBeforeUnload);
 
   // Size the task input to its default (3 lines) once the DOM is ready.
   nextTick(adjustTaskInputHeight);
@@ -780,6 +976,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleEscKey);
   window.removeEventListener('hashchange', handleHashChange);
   window.removeEventListener('resize', adjustTaskInputHeight);
+  window.removeEventListener('beforeunload', handleBeforeUnload);
 });
 </script>
 
@@ -855,6 +1052,34 @@ onUnmounted(() => {
   border-radius: 6px;
   background-color: #fff8e6;
   color: #5c4400;
+}
+
+.conflict-banner {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e0a800;
+  border-radius: 6px;
+  background: #fff8db;
+  color: #5c4400;
+}
+
+.recovery-banner {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.recovery-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.recovery-actions .btn-secondary {
+  padding: 0.5rem 1rem;
 }
 
 .backup-banner p {

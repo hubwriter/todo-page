@@ -4,13 +4,29 @@
 // `todo-backup-YYYYMMDDTHHMMSS.md`. Only the MAX_BACKUPS most recent files are
 // kept on disk; older ones are pruned whenever a new backup is created.
 import fs from 'fs/promises';
-import { dirname, join, resolve, sep } from 'path';
+import { basename, dirname, extname, join, resolve, sep } from 'path';
 import {
   backupFileName,
   isBackupFileName,
   parseBackupTimestamp
 } from '../src/utils/backupUtils.js';
 import { MAX_BACKUPS } from '../src/constants.js';
+
+async function writeExclusiveBackup(filePath, content, mode) {
+  try {
+    await fs.writeFile(filePath, content, {
+      encoding: 'utf-8',
+      flag: 'wx',
+      mode
+    });
+    await fs.chmod(filePath, mode);
+  } catch (error) {
+    if (error?.code !== 'EEXIST') {
+      await fs.unlink(filePath).catch(() => {});
+    }
+    throw error;
+  }
+}
 
 /**
  * List all backup files alongside the todo file, newest first.
@@ -73,12 +89,13 @@ export async function pruneBackups(todoFilePath, keep = MAX_BACKUPS) {
  */
 export async function createBackup(todoFilePath, content, now = new Date()) {
   const dir = dirname(todoFilePath);
+  const mode = (await fs.stat(todoFilePath)).mode & 0o7777;
   let timestamp = new Date(now.getTime());
   let filename = backupFileName(timestamp);
 
   while (true) {
     try {
-      await fs.writeFile(join(dir, filename), content, { encoding: 'utf-8', flag: 'wx' });
+      await writeExclusiveBackup(join(dir, filename), content, mode);
       break;
     } catch (error) {
       if (error?.code !== 'EEXIST') {
@@ -91,6 +108,60 @@ export async function createBackup(todoFilePath, content, now = new Date()) {
 
   await pruneBackups(todoFilePath);
 
+  return filename;
+}
+
+/**
+ * Back up the current todo content before replacing it with different content.
+ * @param {string} todoFilePath - Absolute path to the todo file
+ * @param {string} nextContent - Content that will replace the current file
+ * @returns {Promise<string|null>} Created backup filename, or null if no backup is needed
+ */
+export async function createBackupBeforeWrite(todoFilePath, nextContent) {
+  let previousContent;
+  try {
+    previousContent = await fs.readFile(todoFilePath, 'utf-8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+
+  if (previousContent === nextContent) return null;
+  return createBackup(todoFilePath, previousContent);
+}
+
+/**
+ * Back up a non-todo resource using `<name>-backup-YYYYMMDDTHHMMSS<ext>`.
+ * The newest MAX_BACKUPS copies are retained.
+ */
+export async function createResourceBackup(filePath, content, now = new Date()) {
+  const dir = dirname(filePath);
+  const mode = (await fs.stat(filePath)).mode & 0o7777;
+  const extension = extname(filePath);
+  const stem = basename(filePath, extension);
+  const prefix = `${stem}-backup-`;
+  let filename;
+
+  while (true) {
+    const timestamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
+    filename = `${prefix}${timestamp}${extension}`;
+    try {
+      await writeExclusiveBackup(join(dir, filename), content, mode);
+      break;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      now = new Date(now.getTime() + 1000);
+    }
+  }
+
+  const entries = await fs.readdir(dir);
+  const backups = entries
+    .filter((entry) => entry.startsWith(prefix) && entry.endsWith(extension))
+    .sort()
+    .reverse();
+  await Promise.all(
+    backups.slice(MAX_BACKUPS).map((entry) => fs.unlink(join(dir, entry)).catch(() => {}))
+  );
   return filename;
 }
 

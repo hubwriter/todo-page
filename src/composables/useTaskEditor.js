@@ -43,6 +43,23 @@ export function useTaskEditor() {
     newTask.value = '';
   }
 
+  function restoreDraft(taskInput = '', editState = null) {
+    newTask.value = typeof taskInput === 'string' ? taskInput : '';
+    editingTask.value = editState?.isEditing
+      ? {
+          isEditing: true,
+          originalList: editState.originalList,
+          originalIndex: editState.originalIndex,
+          originalText: editState.originalText
+        }
+      : {
+          isEditing: false,
+          originalList: '',
+          originalIndex: -1,
+          originalText: ''
+        };
+  }
+
   /**
    * Get editing state data
    */
@@ -90,6 +107,7 @@ export function useTaskEditor() {
     editingTask,
     startEdit,
     cancelEdit,
+    restoreDraft,
     getEditState,
     scrollToTask
   };

@@ -1,5 +1,27 @@
 <template>
   <div class="links-tab">
+    <div v-if="unresolved || externalChange || contention" class="conflict-banner" role="status">
+      <strong>Changes saved elsewhere.</strong>
+      {{ contention || 'Your Links edits are preserved. Save again to merge or resolve them.' }}
+    </div>
+
+    <div class="error" v-if="error" role="alert">{{ error }}</div>
+
+    <section v-if="invalid" class="invalid-links" aria-labelledby="invalid-links-heading">
+      <h2 id="invalid-links-heading">Repair links.json</h2>
+      <p>{{ invalidMessage }}</p>
+      <textarea
+        v-model="recoveryText"
+        rows="12"
+        aria-label="Invalid links JSON"
+        @input="handleRecoveryInput"
+      ></textarea>
+      <button type="button" class="btn-primary" @click="handleReplaceInvalid">
+        Validate and replace invalid file
+      </button>
+    </section>
+
+    <template v-else>
     <!-- Add/Edit Link Form -->
     <div class="add-link">
       <div class="link-fields">
@@ -96,8 +118,6 @@
       </div>
     </div>
 
-    <div class="error" v-if="error" role="alert">{{ error }}</div>
-
     <!-- Category Lists -->
     <template v-if="categories.length">
       <div class="links-toolbar">
@@ -133,11 +153,12 @@
       @edit="handleEditFromMenu"
       @delete="handleDeleteFromMenu"
     />
+    </template>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref, computed, onMounted, onUnmounted } from 'vue';
+import { reactive, ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import LinkList from './LinkList.vue';
 import LinkContextMenu from './LinkContextMenu.vue';
 import { useLinks } from '../composables/useLinks.js';
@@ -145,6 +166,11 @@ import { normalizeUrl } from '../utils/linkUtils.js';
 import { handleFormattingShortcut } from '../utils/formattingShortcuts.js';
 import { handleMarkdownPaste } from '../utils/markdownPaste.js';
 import { vEditHistory } from '../utils/editHistory.js';
+import {
+  safeStorageGet,
+  safeStorageRemove,
+  safeStorageSet
+} from '../utils/safeSessionStorage.js';
 import { DEFAULT_LINK_CATEGORY } from '../constants.js';
 
 const props = defineProps({
@@ -159,12 +185,57 @@ const {
   categories,
   error,
   categoryNames,
+  version,
+  dirty,
+  resolving,
+  externalChange,
+  unresolved,
+  contention,
+  invalid,
+  invalidContent,
+  invalidMessage,
+  acceptedValidSnapshotRevision,
   loadLinks,
   addLink,
   updateLink,
   deleteLink,
-  moveLink
+  moveLink,
+  replaceInvalidRaw,
+  noteExternalVersion
 } = useLinks();
+const RECOVERY_DRAFT_KEY = 'todo-page-links-recovery';
+const recoveryText = ref('');
+const recoveryDirty = ref(false);
+
+function noteRecoveryStorageFailure(message, failure) {
+  if (!error.value) error.value = message;
+  console.warn('Could not access Links recovery storage:', failure);
+}
+
+function clearRecoveryDraft() {
+  recoveryText.value = '';
+  recoveryDirty.value = false;
+  safeStorageRemove(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
+}
+
+watch([invalidContent, invalid], ([value, isInvalid]) => {
+  if (recoveryDirty.value) return;
+  const stored = safeStorageGet(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
+  if (isInvalid && stored) {
+    try {
+      const draft = JSON.parse(stored);
+      if (typeof draft.text === 'string') {
+        recoveryText.value = draft.text;
+        recoveryDirty.value = draft.text !== value;
+        return;
+      }
+    } catch {
+      safeStorageRemove(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
+    }
+  }
+  recoveryText.value = value;
+}, { immediate: true });
+watch(acceptedValidSnapshotRevision, clearRecoveryDraft);
 
 // Add/edit form state
 const form = reactive({
@@ -210,7 +281,7 @@ function resetForm() {
   error.value = '';
 }
 
-function handleAddOrSave() {
+async function handleAddOrSave() {
   const category = form.category.trim();
   const url = form.url.trim();
   // Collapse any newlines so the description stays on a single line
@@ -229,14 +300,18 @@ function handleAddOrSave() {
 
   error.value = '';
 
-  if (editing.value) {
-    updateLink(editing.value.id, editing.value.category, {
-      category,
-      url: normalizedUrl,
-      description
-    });
-  } else {
-    addLink({ category, url: normalizedUrl, description });
+  try {
+    if (editing.value) {
+      await updateLink(editing.value.id, editing.value.category, {
+        category,
+        url: normalizedUrl,
+        description
+      });
+    } else {
+      await addLink({ category, url: normalizedUrl, description });
+    }
+  } catch {
+    return;
   }
 
   resetForm();
@@ -283,13 +358,13 @@ function onDragStart(event, category, id) {
   event.dataTransfer.effectAllowed = 'move';
 }
 
-function onDrop(event, targetCategory, targetIndex) {
+async function onDrop(event, targetCategory, targetIndex) {
   event.preventDefault();
   isDragging.value = false;
   if (!draggedLink.value) return;
 
   const { category: sourceCategory, id } = draggedLink.value;
-  moveLink(sourceCategory, id, targetCategory, targetIndex);
+  await moveLink(sourceCategory, id, targetCategory, targetIndex);
   draggedLink.value = null;
 }
 
@@ -337,16 +412,71 @@ function handleEditFromMenu() {
   error.value = '';
 }
 
-function handleDeleteFromMenu() {
+async function handleDeleteFromMenu() {
   const { category, id } = contextMenu.value;
   closeContextMenu();
-
-  // If we were editing this entry, reset the form back to add mode
-  if (editing.value && editing.value.id === id) {
-    resetForm();
+  const deletingEditedLink = editing.value?.id === id;
+  try {
+    await deleteLink(category, id);
+  } catch {
+    return;
   }
+  if (deletingEditedLink) resetForm();
+}
 
-  deleteLink(category, id);
+async function handleReplaceInvalid() {
+  try {
+    await replaceInvalidRaw(recoveryText.value);
+  } catch (replacementFailure) {
+    recoveryDirty.value = true;
+    safeStorageSet(RECOVERY_DRAFT_KEY, JSON.stringify({
+      text: recoveryText.value
+    }), noteRecoveryStorageFailure);
+    console.error('Error replacing invalid links file:', replacementFailure);
+    error.value = replacementFailure.userMessage
+      || error.value
+      || 'Could not replace links.json. Your repaired JSON is still here; check your connection and try again.';
+  }
+}
+
+function handleRecoveryInput() {
+  recoveryDirty.value = recoveryText.value !== invalidContent.value;
+  if (!recoveryDirty.value) {
+    safeStorageRemove(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
+    return;
+  }
+  safeStorageSet(RECOVERY_DRAFT_KEY, JSON.stringify({
+    text: recoveryText.value
+  }), noteRecoveryStorageFailure);
+}
+
+function hasUnsavedForm() {
+  return isEditing.value ||
+    form.url.trim() !== '' ||
+    form.description.trim() !== '' ||
+    form.category.trim() !== DEFAULT_LINK_CATEGORY;
+}
+
+async function handleResourceChange(event) {
+  const notification = event.detail;
+  if (notification.resource !== 'links' && !notification.resync) return;
+  const preserveLocal = dirty.value || resolving.value || hasUnsavedForm() || recoveryDirty.value;
+  if (notification.resync) {
+    await loadLinks({ preserveLocal });
+    return;
+  }
+  if (notification.version && notification.version === version.value) return;
+  if (preserveLocal) {
+    noteExternalVersion(notification.version);
+  } else {
+    await loadLinks();
+  }
+}
+
+function handleBeforeUnload(event) {
+  if (!hasUnsavedForm() && !recoveryDirty.value && !dirty.value && !resolving.value) return;
+  event.preventDefault();
+  event.returnValue = '';
 }
 
 function isTextFieldFocused(target) {
@@ -380,17 +510,37 @@ onMounted(() => {
   loadLinks();
   window.addEventListener('keydown', handleGlobalKeyDown);
   window.addEventListener('click', closeCategoryDropdown);
+  window.addEventListener('resource-version-change', handleResourceChange);
+  window.addEventListener('beforeunload', handleBeforeUnload);
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeyDown);
   window.removeEventListener('click', closeCategoryDropdown);
+  window.removeEventListener('resource-version-change', handleResourceChange);
+  window.removeEventListener('beforeunload', handleBeforeUnload);
 });
 </script>
 
 <style scoped>
 .links-tab {
   width: 100%;
+}
+
+.conflict-banner,
+.invalid-links {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e0a800;
+  border-radius: 6px;
+  background: #fff8db;
+  color: #5c4400;
+}
+
+.invalid-links textarea {
+  width: 100%;
+  margin-bottom: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .add-link {
