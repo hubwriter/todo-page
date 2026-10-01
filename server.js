@@ -42,6 +42,10 @@ app.use(helmet({
       connectSrc: ["'self'"]
     }
   },
+  // The dev server is plain HTTP. Sending HSTS would make browsers cache a
+  // policy for localhost and force-upgrade every http://localhost:PORT request
+  // to https://, which fails and breaks other local projects on any port.
+  strictTransportSecurity: !isDevelopment,
   crossOriginEmbedderPolicy: false
 }));
 

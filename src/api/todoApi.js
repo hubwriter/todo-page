@@ -34,29 +34,84 @@ export async function saveTodoContent(content) {
 }
 
 /**
- * Setup file watcher with event source
+ * Setup file watcher with event source.
+ *
+ * The stream is only held open while the tab is visible. Browsers cap
+ * concurrent connections per origin (Chrome allows 6 over HTTP/1.1), and this
+ * stream never ends, so background tabs that kept it open would exhaust the
+ * budget and leave every later request to this origin queued forever - the
+ * whole app then fails to load in any new tab.
+ *
  * @param {Function} onChangeCallback - Called when file changes
- * @returns {EventSource} Event source instance
+ * @returns {{close: Function}} Watcher handle
  */
 export function setupFileWatcher(onChangeCallback) {
-  const eventSource = new EventSource(`${API_BASE}/todo/watch`);
+  let eventSource = null;
+  let reconnectTimer = null;
+  let resyncOnReconnect = false;
+  let closed = false;
 
-  eventSource.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'change') {
-      console.log('File changed externally, reloading...');
+  const disconnect = () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+  };
+
+  const connect = () => {
+    if (closed || eventSource || document.hidden) return;
+
+    const source = new EventSource(`${API_BASE}/todo/watch`);
+    eventSource = source;
+
+    source.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'change') {
+        console.log('File changed externally, reloading...');
+        onChangeCallback();
+      }
+    };
+
+    source.onerror = (err) => {
+      console.error('EventSource error:', err);
+      // Release the socket before waiting, so a failed stream never keeps
+      // occupying one of the origin's few connection slots.
+      source.close();
+      if (eventSource === source) eventSource = null;
+      if (closed || reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, RECONNECT_DELAY_MS);
+    };
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.hidden) {
+      disconnect();
+      resyncOnReconnect = true;
+      return;
+    }
+    connect();
+    if (resyncOnReconnect) {
+      resyncOnReconnect = false;
+      // Pick up any change that happened while disconnected.
       onChangeCallback();
     }
   };
 
-  eventSource.onerror = (err) => {
-    console.error('EventSource error:', err);
-    eventSource.close();
-    // Attempt to reconnect
-    setTimeout(() => {
-      setupFileWatcher(onChangeCallback);
-    }, RECONNECT_DELAY_MS);
-  };
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  connect();
 
-  return eventSource;
+  return {
+    close() {
+      closed = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      disconnect();
+    }
+  };
 }
