@@ -424,6 +424,33 @@ describe('LinksTab', () => {
     restored.unmount();
   });
 
+  it('fetches the real Links version on resync without replacing unsaved form work', async () => {
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    await fill(wrapper, {
+      category: 'Draft',
+      url: 'https://draft.test',
+      description: 'Unsaved'
+    });
+    const callsBeforeResync = loadLinks.mock.calls.length;
+    loadLinks.mockResolvedValue({
+      categories: [],
+      rawContent: '[]',
+      version: 'v1',
+      invalid: false
+    });
+
+    window.dispatchEvent(new CustomEvent('resource-version-change', {
+      detail: { resource: null, version: null, resync: true }
+    }));
+    await flushPromises();
+
+    expect(loadLinks).toHaveBeenCalledTimes(callsBeforeResync + 1);
+    expect(wrapper.find('#link-url').element.value).toBe('https://draft.test');
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('keeps invalid recovery editing functional when sessionStorage quota is exceeded', async () => {
     loadLinks.mockResolvedValue({
       categories: null,

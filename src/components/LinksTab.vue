@@ -456,14 +456,19 @@ function hasUnsavedForm() {
     form.category.trim() !== DEFAULT_LINK_CATEGORY;
 }
 
-function handleResourceChange(event) {
+async function handleResourceChange(event) {
   const notification = event.detail;
   if (notification.resource !== 'links' && !notification.resync) return;
+  const preserveLocal = dirty.value || resolving.value || hasUnsavedForm() || recoveryDirty.value;
+  if (notification.resync) {
+    await loadLinks({ preserveLocal });
+    return;
+  }
   if (notification.version && notification.version === version.value) return;
-  if (dirty.value || resolving.value || hasUnsavedForm() || recoveryDirty.value) {
+  if (preserveLocal) {
     noteExternalVersion(notification.version);
   } else {
-    loadLinks();
+    await loadLinks();
   }
 }
 

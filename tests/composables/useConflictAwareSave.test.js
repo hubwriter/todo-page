@@ -88,6 +88,40 @@ describe('useConflictAwareSave', () => {
     expect(coordinator.dirty.value).toBe(false);
   });
 
+  it('closes a stale conflict workflow when clean rebase retries reach the limit', async () => {
+    const saveRemote = vi.fn()
+      .mockRejectedValueOnce(new ConflictError('stale', {
+        content: 'a\nOther\nz',
+        version: 'v2'
+      }))
+      .mockRejectedValueOnce(new ConflictError('stale again', {
+        content: 'Remote addition\na\nOther\nz',
+        version: 'v3'
+      }))
+      .mockImplementationOnce(async (content) => ({ content, version: 'v4' }));
+    const coordinator = createCoordinator(saveRemote, { retryLimit: 0 });
+    coordinator.initialize({ content: 'a\nBase\nz', version: 'v1' });
+
+    await coordinator.save('a\nCurrent\nz');
+    const queue = useConflictDialogQueue();
+    const staleWorkflow = queue.activeConflict.value;
+    staleWorkflow.conflicts[0].resolution = 'Resolved';
+    staleWorkflow.conflicts[0].resolved = true;
+    await staleWorkflow.apply(staleWorkflow.conflicts);
+
+    expect(queue.activeConflict.value).toBeNull();
+    expect(coordinator.localCandidate.value).toBe('Remote addition\na\nResolved\nz');
+    expect(coordinator.contention.value).toContain('Changes keep arriving');
+
+    await coordinator.save(coordinator.localCandidate.value);
+    expect(saveRemote.mock.calls[2]).toEqual([
+      'Remote addition\na\nResolved\nz',
+      'v3',
+      {}
+    ]);
+    expect(coordinator.dirty.value).toBe(false);
+  });
+
   it('persists canceled conflict drafts and rebases again if the save races', async () => {
     const saveRemote = vi.fn()
       .mockRejectedValueOnce(new ConflictError('stale', {

@@ -257,6 +257,8 @@ export function useConflictAwareSave({
       if (attempt >= retryLimit) {
         contention.value = 'Changes keep arriving. Please wait a moment and save again.';
         unresolved.value = true;
+        closeConflictDialog(resource);
+        clearFocusReturnTarget();
         return null;
       }
       return attemptSave(attempt + 1, retryOptions);

@@ -610,6 +610,37 @@ describe('App backups preview', () => {
     }
   });
 
+  it('does not restore a backup when unsaved work cannot be persisted for recovery', async () => {
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      });
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const wrapper = mount(App);
+    try {
+      await flushPromises();
+      await wrapper.find('.add-task textarea').setValue('Unsaved task');
+      await wrapper.findAll('.tabs button').find((button) => button.text() === 'Backups').trigger('click');
+      await flushPromises();
+      await wrapper.find('.backup-item').trigger('click');
+      await flushPromises();
+      saveTodoContent.mockClear();
+
+      await wrapper.find('.backup-banner .btn-primary').trigger('click');
+      await flushPromises();
+
+      expect(saveTodoContent).not.toHaveBeenCalled();
+      expect(wrapper.find('.backup-banner').exists()).toBe(true);
+      expect(wrapper.find('.error').text()).toContain('backup was not restored');
+    } finally {
+      wrapper.unmount();
+      storageSpy.mockRestore();
+      consoleSpy.mockRestore();
+      confirmSpy.mockRestore();
+    }
+  });
+
   it('requires an explicit decision before restoring over dirty Markdown', async () => {
     vi.useFakeTimers();
     const confirmSpy = vi.spyOn(window, 'confirm')

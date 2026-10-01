@@ -703,7 +703,7 @@ async function handleMoveToPriority() {
 
 // Backup preview handlers
 function preserveBackupRestoreDraft() {
-  safeStorageSet(BACKUP_RESTORE_DRAFT_KEY, JSON.stringify({
+  return safeStorageSet(BACKUP_RESTORE_DRAFT_KEY, JSON.stringify({
     content: markdownContent.value,
     taskInput: newTask.value,
     editState: editState.value,
@@ -804,7 +804,11 @@ async function handleUseBackup() {
   try {
     error.value = '';
     if (hasLocalTodoWork.value) {
-      preserveBackupRestoreDraft();
+      const preserved = preserveBackupRestoreDraft();
+      if (!preserved) {
+        error.value = 'The backup was not restored because your unsaved work could not be stored safely. Keep this tab open, save or discard your work, then try again.';
+        return;
+      }
       const approved = window.confirm(
         'You have unsaved task or Markdown work. Restore this backup and keep that draft in this browser for recovery? Cancel leaves the draft and preview unchanged.'
       );
