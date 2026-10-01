@@ -3,6 +3,40 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { SANITIZE_CONFIG } from '../constants.js';
 
+const ALLOWED_STYLE_PROPERTIES = new Set([
+  'color',
+  'background-color',
+  'font-weight',
+  'font-style',
+  'text-decoration',
+  'text-decoration-line',
+  'text-decoration-color',
+  'text-decoration-style'
+]);
+
+const UNSAFE_STYLE_VALUE = /\b(?:url|var|expression)\s*\(/i;
+
+DOMPurify.addHook('uponSanitizeAttribute', (node, hookEvent) => {
+  if (hookEvent.attrName !== 'style') return;
+
+  const parsedStyle = node.ownerDocument.createElement('span').style;
+  const sanitizedStyle = node.ownerDocument.createElement('span').style;
+  parsedStyle.cssText = hookEvent.attrValue;
+
+  for (let index = 0; index < parsedStyle.length; index++) {
+    const property = parsedStyle.item(index).toLowerCase();
+    if (!ALLOWED_STYLE_PROPERTIES.has(property)) continue;
+
+    const value = parsedStyle.getPropertyValue(property).trim();
+    if (!value || UNSAFE_STYLE_VALUE.test(value)) continue;
+
+    sanitizedStyle.setProperty(property, value);
+  }
+
+  hookEvent.attrValue = sanitizedStyle.cssText;
+  hookEvent.keepAttr = hookEvent.attrValue.length > 0;
+});
+
 /**
  * Transform local file paths to API URLs in markdown/HTML
  * @param {string} text - Text containing potential image paths

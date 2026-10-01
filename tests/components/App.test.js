@@ -87,7 +87,7 @@ describe('App formatting shortcuts', () => {
       await textarea.trigger('keydown', { key: 'Enter', metaKey: true });
       await flushPromises();
       expect(saveTodoContent).toHaveBeenLastCalledWith(expect.stringContaining(`- [ ] ${task}`));
-      expect(wrapper.find('.task-text span').attributes('style')).toContain('color:green');
+      expect(wrapper.find('.task-text span').element.style.color).toBe('green');
     } finally {
       wrapper.unmount();
     }

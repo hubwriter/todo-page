@@ -154,12 +154,60 @@ describe('renderMarkdown', () => {
     expect(html).toContain('href="https://example.com"');
   });
 
-  it('preserves styled span and div HTML', () => {
-    const html = renderMarkdown(
-      'I want <span style="color:green">this text</span> and <div style="color:blue">this block</div> colored.'
+  it('preserves safe text formatting on span and div HTML', () => {
+    const element = renderBlock(
+      '<span style="color:green;background-color:yellow;font-weight:700;font-style:italic;text-decoration:underline">inline</span>' +
+      '<div style="color:blue">block</div>'
     );
-    expect(html).toContain('<span style="color:green">this text</span>');
-    expect(html).toContain('<div style="color:blue">this block</div>');
+    const span = element.querySelector('span');
+    const div = element.querySelector('div');
+
+    expect(span.style.color).toBe('green');
+    expect(span.style.backgroundColor).toBe('yellow');
+    expect(span.style.fontWeight).toBe('700');
+    expect(span.style.fontStyle).toBe('italic');
+    expect(span.style.textDecoration).toContain('underline');
+    expect(div.style.color).toBe('blue');
+  });
+
+  it('removes layout-affecting CSS while preserving safe text formatting', () => {
+    const element = renderBlock(
+      '<div style="color:red;position:fixed;inset:0;top:0;right:0;bottom:0;left:0;' +
+      'z-index:9999;width:100vw;height:100vh;display:block;transform:scale(10);' +
+      'opacity:0;pointer-events:auto">text</div>'
+    );
+    const div = element.querySelector('div');
+
+    expect(div.style.color).toBe('red');
+    for (const property of [
+      'position', 'inset', 'top', 'right', 'bottom', 'left', 'z-index',
+      'width', 'height', 'display', 'transform', 'opacity', 'pointer-events'
+    ]) {
+      expect(div.style.getPropertyValue(property)).toBe('');
+    }
+  });
+
+  it('removes URL-bearing and custom-property CSS', () => {
+    const element = renderBlock(
+      '<span style="color:green;--image:url(https://example.com/custom);' +
+      'background:url(https://example.com/background);' +
+      'background-image:url(https://example.com/image);' +
+      'cursor:url(https://example.com/cursor),auto;' +
+      'list-style-image:url(https://example.com/list)">text</span>'
+    );
+    const span = element.querySelector('span');
+
+    expect(span.style.color).toBe('green');
+    expect(span.getAttribute('style')).not.toMatch(/url\s*\(/i);
+    expect(span.style.getPropertyValue('--image')).toBe('');
+    expect(span.style.backgroundImage).toBe('');
+    expect(span.style.cursor).toBe('');
+    expect(span.style.listStyleImage).toBe('');
+  });
+
+  it('removes the style attribute when no safe declarations remain', () => {
+    const element = renderBlock('<span style="position:fixed;inset:0">text</span>');
+    expect(element.querySelector('span').hasAttribute('style')).toBe(false);
   });
 
   it('sanitizes dangerous attributes (XSS)', () => {

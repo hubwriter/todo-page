@@ -164,7 +164,7 @@ describe('LinksTab', () => {
       await textarea.trigger('keydown', { key: 'Enter', metaKey: true });
       await flushPromises();
       expect(saveLinks.mock.calls.at(-1)[0][0].links[0].description).toBe(description);
-      expect(wrapper.find('.link-description span').attributes('style')).toContain('color:green');
+      expect(wrapper.find('.link-description span').element.style.color).toBe('green');
     } finally {
       wrapper.unmount();
     }
