@@ -154,6 +154,14 @@ describe('renderMarkdown', () => {
     expect(html).toContain('href="https://example.com"');
   });
 
+  it('preserves styled span and div HTML', () => {
+    const html = renderMarkdown(
+      'I want <span style="color:green">this text</span> and <div style="color:blue">this block</div> colored.'
+    );
+    expect(html).toContain('<span style="color:green">this text</span>');
+    expect(html).toContain('<div style="color:blue">this block</div>');
+  });
+
   it('sanitizes dangerous attributes (XSS)', () => {
     const html = renderMarkdown('<img src=x onerror="alert(1)">');
     expect(html).not.toContain('onerror');

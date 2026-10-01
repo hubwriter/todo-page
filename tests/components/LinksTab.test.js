@@ -147,6 +147,29 @@ describe('LinksTab', () => {
     }
   });
 
+  it('preserves styled HTML when editing and saving a link description', async () => {
+    const description = 'I want <span style="color:green">this text</span> to be colored.';
+    loadLinks.mockResolvedValue([{
+      name: 'GitHub',
+      links: [{ id: 'existing', url: 'https://github.com', description }]
+    }]);
+    const wrapper = mount(LinksTab);
+    try {
+      await flushPromises();
+      await wrapper.find('.link-description').trigger('dblclick');
+      await wrapper.find('.context-menu-item').trigger('click');
+      const textarea = wrapper.find('#link-description');
+      expect(textarea.element.value).toBe(description);
+
+      await textarea.trigger('keydown', { key: 'Enter', metaKey: true });
+      await flushPromises();
+      expect(saveLinks.mock.calls.at(-1)[0][0].links[0].description).toBe(description);
+      expect(wrapper.find('.link-description span').attributes('style')).toContain('color:green');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it.each(['#link-category', '#link-url'])('does not format %s', async selector => {
     const wrapper = mount(LinksTab);
     try {

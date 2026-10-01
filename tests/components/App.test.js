@@ -74,6 +74,25 @@ describe('App formatting shortcuts', () => {
     }
   });
 
+  it('preserves styled HTML when editing and saving a task', async () => {
+    const task = 'I want <span style="color:green">this text</span> to be colored.';
+    loadTodoContent.mockResolvedValue(`# Priority\n\n- [ ] ${task}\n\n# Other\n\n# Done\n`);
+    const wrapper = mount(App);
+    try {
+      await flushPromises();
+      await wrapper.find('li.task-item').trigger('click', { metaKey: true });
+      const textarea = wrapper.find('.add-task textarea');
+      expect(textarea.element.value).toBe(task);
+
+      await textarea.trigger('keydown', { key: 'Enter', metaKey: true });
+      await flushPromises();
+      expect(saveTodoContent).toHaveBeenLastCalledWith(expect.stringContaining(`- [ ] ${task}`));
+      expect(wrapper.find('.task-text span').attributes('style')).toContain('color:green');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('autosaves formatting applied in the Markdown editor', async () => {
     vi.useFakeTimers();
     const wrapper = mount(App);
