@@ -199,6 +199,41 @@ describe('App undo and redo', () => {
     }
   });
 
+  it('undoes a native word deletion while editing a task', async () => {
+    const wrapper = mount(App, { attachTo: document.body });
+    try {
+      await flushPromises();
+      await wrapper.find('li.task-item').trigger('click', { metaKey: true });
+      const textarea = wrapper.find('.add-task textarea');
+      const element = textarea.element;
+      element.setSelectionRange(0, 'Original'.length);
+      element.dispatchEvent(new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'deleteContentBackward'
+      }));
+      element.setRangeText('', element.selectionStart, element.selectionEnd, 'end');
+      element.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        inputType: 'deleteContentBackward'
+      }));
+      await flushPromises();
+      expect(element.value).toBe(' task');
+
+      element.dispatchEvent(new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'z',
+        metaKey: true
+      }));
+      await flushPromises();
+
+      expect(element.value).toBe('Original task');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('keeps Markdown history across autosaves and saves undo and redo results', async () => {
     vi.useFakeTimers();
     let content = '# Priority\n\n- [ ] Original task\n\n# Other\n\n# Done\n';

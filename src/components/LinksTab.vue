@@ -12,6 +12,7 @@
       <p>{{ invalidMessage }}</p>
       <textarea
         v-model="recoveryText"
+        v-edit-history="version"
         rows="12"
         aria-label="Invalid links JSON"
         @input="handleRecoveryInput"

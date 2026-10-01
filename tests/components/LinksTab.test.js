@@ -393,6 +393,27 @@ describe('LinksTab', () => {
     wrapper.unmount();
   });
 
+  it('undoes and redoes invalid JSON recovery edits', async () => {
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '{"broken"',
+      version: 'v-bad',
+      invalid: true,
+      error: 'invalid JSON'
+    });
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+    const recovery = wrapper.find('[aria-label="Invalid links JSON"]');
+
+    await recovery.setValue('[{"name":"Recovered","links":[]}]');
+    await recovery.trigger('keydown', { key: 'z', ctrlKey: true });
+    expect(recovery.element.value).toBe('{"broken"');
+
+    await recovery.trigger('keydown', { key: 'y', ctrlKey: true });
+    expect(recovery.element.value).toBe('[{"name":"Recovered","links":[]}]');
+    wrapper.unmount();
+  });
+
   it('shows repair controls for an empty invalid links file', async () => {
     loadLinks.mockResolvedValue({
       categories: null,
