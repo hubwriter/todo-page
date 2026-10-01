@@ -393,6 +393,23 @@ describe('LinksTab', () => {
     wrapper.unmount();
   });
 
+  it('shows repair controls for an empty invalid links file', async () => {
+    loadLinks.mockResolvedValue({
+      categories: null,
+      rawContent: '',
+      version: 'v-empty',
+      invalid: true,
+      error: 'links.json contains invalid JSON'
+    });
+    const wrapper = mount(LinksTab);
+    await flushPromises();
+
+    expect(wrapper.find('.invalid-links').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Invalid links JSON"]').element.value).toBe('');
+    expect(wrapper.find('.add-link').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('preserves an invalid-JSON recovery draft across watcher events and remounts', async () => {
     loadLinks.mockResolvedValue({
       categories: null,

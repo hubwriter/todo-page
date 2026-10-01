@@ -951,6 +951,32 @@ describe('App command-click to edit', () => {
       consoleSpy.mockRestore();
     }
   });
+
+  it('keeps an edit draft when another action moves the original task', async () => {
+    loadTodoContent.mockResolvedValue({
+      content: '# Priority\n\n- [ ] First\n- [ ] Second\n\n# Other\n\n# Done\n',
+      version: 'v1'
+    });
+    const wrapper = mount(App, { attachTo: document.body });
+    await flushPromises();
+
+    await wrapper.findAll('li.task-item')[0].trigger('click', { metaKey: true });
+    const input = wrapper.find('.add-task textarea');
+    await input.setValue('Edited first');
+    await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
+    await flushPromises();
+    saveTodoContent.mockClear();
+
+    await wrapper.find('.add-task .btn-primary').trigger('click');
+    await flushPromises();
+
+    expect(saveTodoContent).not.toHaveBeenCalled();
+    expect(input.element.value).toBe('Edited first');
+    expect(input.attributes('aria-label')).toBe('Edit task');
+    expect(wrapper.find('.error').text()).toContain('original task changed');
+    expect(wrapper.text()).toContain('Second');
+    wrapper.unmount();
+  });
 });
 
 describe('App resource watcher', () => {

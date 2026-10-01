@@ -25,4 +25,11 @@ describe('mergeMarkdown', () => {
     expect(result.conflicts).toHaveLength(0);
     expect(result.content).toBe('zero\none\n');
   });
+
+  it('does not add a blank line for an empty conflict resolution', () => {
+    const result = mergeMarkdown('a\nbase\nz', 'a\nz', 'a\nother\nz');
+    expect(result.conflicts).toHaveLength(1);
+    result.conflicts[0].resolution = '';
+    expect(result.assemble(result.conflicts)).toBe('a\nz');
+  });
 });

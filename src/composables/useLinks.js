@@ -105,6 +105,7 @@ function mergeLinkSnapshots(base, current, other) {
 export function useLinks() {
   const categories = ref([]);
   const loadError = ref('');
+  const invalid = ref(false);
   const invalidContent = ref('');
   const invalidMessage = ref('');
   const acceptedValidSnapshotRevision = ref(0);
@@ -137,6 +138,7 @@ export function useLinks() {
   });
 
   function applySnapshot(snapshot) {
+    invalid.value = snapshot.invalid === true;
     if (snapshot.invalid) {
       invalidContent.value = snapshot.rawContent;
       invalidMessage.value = 'links.json contains invalid JSON. Fix it below or explicitly replace it.';
@@ -295,6 +297,7 @@ export function useLinks() {
     externalChange: coordinator.externalChange,
     unresolved: coordinator.unresolved,
     contention: coordinator.contention,
+    invalid,
     invalidContent,
     invalidMessage,
     acceptedValidSnapshotRevision,

@@ -46,6 +46,20 @@ describe('useLinks', () => {
     expect(apiSaveLinks).toHaveBeenCalled();
   });
 
+  it('rejects invalid optimistic mutations and restores the previous Links state', async () => {
+    const { categories, addLink, error } = useLinks();
+
+    await expect(addLink({
+      category: 'x'.repeat(101),
+      url: 'https://invalid.test',
+      description: 'Invalid category'
+    })).rejects.toThrow('Every category needs a valid name');
+
+    expect(categories.value).toEqual([]);
+    expect(error.value).toContain('Every category needs a valid name');
+    expect(apiSaveLinks).not.toHaveBeenCalled();
+  });
+
   it('addLink prepends to an existing category', async () => {
     const { categories, addLink } = useLinks();
     await addLink({ category: 'Docs', url: 'https://a.com', description: 'a' });

@@ -164,6 +164,30 @@ describe('concurrency API', () => {
     });
   });
 
+  it('persists legacy IDs before returning a stale-write conflict', async () => {
+    const loaded = await fetch(`${baseUrl}/api/links`).then((response) => response.json());
+    const legacy = [{
+      name: 'Legacy',
+      links: [{ url: 'https://legacy.test', description: 'Legacy' }]
+    }];
+    await fs.writeFile(linksPath, JSON.stringify(legacy), 'utf-8');
+
+    const response = await fetch(`${baseUrl}/api/links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        categories: loaded.categories,
+        baseVersion: loaded.version
+      })
+    });
+
+    expect(response.status).toBe(409);
+    const conflict = await response.json();
+    const durableId = conflict.categories[0].links[0].id;
+    expect(durableId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(JSON.parse(await fs.readFile(linksPath, 'utf-8'))[0].links[0].id).toBe(durableId);
+  });
+
 });
 
 describe('backup failure API', () => {

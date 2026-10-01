@@ -27,7 +27,8 @@ export function mergeMarkdown(base, current, other) {
   const assemble = (resolutions = conflicts) => parts
     .flatMap((part) => {
       if (part.type === 'text') return part.lines;
-      return String(resolutions[part.index]?.resolution ?? '').split('\n');
+      const resolution = String(resolutions[part.index]?.resolution ?? '');
+      return resolution === '' ? [] : resolution.split('\n');
     })
     .join('\n');
 

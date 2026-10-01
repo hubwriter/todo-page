@@ -118,6 +118,18 @@ describe('setupFileWatcher', () => {
     expect(openStreams()).toHaveLength(0);
   });
 
+  it('resyncs once after the initial visible connection opens', () => {
+    const cb = vi.fn();
+    makeWatcher(cb);
+    expect(cb).not.toHaveBeenCalled();
+
+    instances[0].onopen();
+    instances[0].onopen();
+
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith({ resource: null, version: null, resync: true });
+  });
+
   it('releases the connection while the tab is hidden and restores it', () => {
     const cb = vi.fn();
     makeWatcher(cb);

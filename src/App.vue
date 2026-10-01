@@ -562,11 +562,15 @@ async function handleAddOrSave() {
 
   if (editState.value.isEditing) {
     // Editing mode: restore to original position
-    const { originalList, originalIndex } = editState.value;
+    const { originalList, originalIndex, originalText } = editState.value;
 
     // Replace the source task only when Save is pressed.
     const lists = getTaskLists();
     const targetList = getTaskList(originalList, lists);
+    if (targetList[originalIndex] !== originalText) {
+      error.value = 'The original task changed while you were editing. Your draft is still here; select the latest task and apply your edit again.';
+      return;
+    }
     const snapshot = snapshotTasks();
     targetList.splice(originalIndex, 1, taskText);
     try {

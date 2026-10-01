@@ -54,6 +54,7 @@ export function mergeLinks(baseCategories, currentCategories, otherCategories) {
   const merged = new Map();
   const mergedCategories = new Map();
   const excludedCategories = new Set();
+  const explicitlyAddedEmptyCategories = new Set();
 
   function conflict(label, baseValue, currentValue, otherValue, apply) {
     const index = conflicts.length;
@@ -80,6 +81,9 @@ export function mergeLinks(baseCategories, currentCategories, otherCategories) {
 
     if (!baseCategory) {
       const entry = clone(currentCategory || otherCategory);
+      if (currentCategory?.linkIds.length === 0 || otherCategory?.linkIds.length === 0) {
+        explicitlyAddedEmptyCategories.add(name);
+      }
       if (currentCategory && otherCategory) {
         if (currentCategory.position === otherCategory.position) {
           entry.position = currentCategory.position;
@@ -218,7 +222,9 @@ export function mergeLinks(baseCategories, currentCategories, otherCategories) {
       conflicts[index].apply(resolution.resolution);
     });
     const grouped = new Map(
-      [...mergedCategories.keys()].map((name) => [name, []])
+      [...mergedCategories.keys()]
+        .filter((name) => base.categoriesByName.has(name) || explicitlyAddedEmptyCategories.has(name))
+        .map((name) => [name, []])
     );
     for (const link of merged.values()) {
       if (excludedCategories.has(link.category)) continue;

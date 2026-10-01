@@ -343,7 +343,9 @@ export function useConflictAwareSave({
       error.value = validation.error;
       unresolved.value = true;
       persistDraft();
-      return null;
+      const validationError = new Error(validation.error);
+      validationError.userMessage = validation.error;
+      throw validationError;
     }
     try {
       error.value = '';

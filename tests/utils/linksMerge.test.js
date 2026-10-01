@@ -67,7 +67,9 @@ describe('mergeLinks', () => {
 
     const movedCurrent = [category('A', [link('one', 'https://x.test', 'Base')])];
     const movedOther = [category('B', [link('one', 'https://x.test', 'Base')])];
-    expect(mergeLinks(base, movedCurrent, movedOther).conflicts.some((item) => item.label.startsWith('Category'))).toBe(true);
+    const moved = mergeLinks(base, movedCurrent, movedOther);
+    expect(moved.conflicts.some((item) => item.label.startsWith('Category'))).toBe(true);
+    expect(moved.assemble(moved.conflicts).map((item) => item.name)).toEqual(['A']);
 
     const duplicate = [category('Docs', [
       link('same', 'https://a.test', 'A'),

@@ -410,27 +410,14 @@ app.post('/api/links', fileOperationLimiter, async (req, res) => {
     });
 
     if (result.status === 'conflict') {
-      let latestCategories = null;
-      let invalid = false;
-      let latestError = '';
-      try {
-        const latestValidation = sanitizeLinkCategories(JSON.parse(result.latest.content));
-        if (latestValidation.isValid) latestCategories = latestValidation.value;
-        else {
-          invalid = true;
-          latestError = latestValidation.error;
-        }
-      } catch (error) {
-        invalid = true;
-        latestError = `links.json contains invalid JSON: ${error.message}`;
-      }
+      const latest = await readLinksFile();
       return res.status(409).json({
         error: 'Links changed since they were loaded',
-        categories: latestCategories,
-        rawContent: result.latest.content,
-        version: result.latest.version,
-        invalid,
-        invalidError: latestError
+        categories: latest.invalid ? null : latest.categories,
+        rawContent: latest.rawContent,
+        version: latest.version,
+        invalid: latest.invalid,
+        invalidError: latest.invalid ? latest.error : ''
       });
     }
     if (result.status === 'rejected') {

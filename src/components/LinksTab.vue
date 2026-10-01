@@ -7,7 +7,7 @@
 
     <div class="error" v-if="error" role="alert">{{ error }}</div>
 
-    <section v-if="invalidContent" class="invalid-links" aria-labelledby="invalid-links-heading">
+    <section v-if="invalid" class="invalid-links" aria-labelledby="invalid-links-heading">
       <h2 id="invalid-links-heading">Repair links.json</h2>
       <p>{{ invalidMessage }}</p>
       <textarea
@@ -191,6 +191,7 @@ const {
   externalChange,
   unresolved,
   contention,
+  invalid,
   invalidContent,
   invalidMessage,
   acceptedValidSnapshotRevision,
@@ -217,10 +218,10 @@ function clearRecoveryDraft() {
   safeStorageRemove(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
 }
 
-watch(invalidContent, (value) => {
+watch([invalidContent, invalid], ([value, isInvalid]) => {
   if (recoveryDirty.value) return;
   const stored = safeStorageGet(RECOVERY_DRAFT_KEY, noteRecoveryStorageFailure);
-  if (value && stored) {
+  if (isInvalid && stored) {
     try {
       const draft = JSON.parse(stored);
       if (typeof draft.text === 'string') {

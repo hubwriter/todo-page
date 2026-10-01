@@ -70,7 +70,7 @@ export async function saveTodoContent(content, baseVersion) {
 export function setupFileWatcher(onChangeCallback) {
   let eventSource = null;
   let reconnectTimer = null;
-  let resyncOnReconnect = document.hidden;
+  let resyncOnReconnect = true;
   let closed = false;
 
   const resync = () => {
