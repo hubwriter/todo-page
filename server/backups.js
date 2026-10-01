@@ -95,6 +95,25 @@ export async function createBackup(todoFilePath, content, now = new Date()) {
 }
 
 /**
+ * Back up the current todo content before replacing it with different content.
+ * @param {string} todoFilePath - Absolute path to the todo file
+ * @param {string} nextContent - Content that will replace the current file
+ * @returns {Promise<string|null>} Created backup filename, or null if no backup is needed
+ */
+export async function createBackupBeforeWrite(todoFilePath, nextContent) {
+  let previousContent;
+  try {
+    previousContent = await fs.readFile(todoFilePath, 'utf-8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+
+  if (previousContent === nextContent) return null;
+  return createBackup(todoFilePath, previousContent);
+}
+
+/**
  * Read the content of a named backup file.
  * @param {string} todoFilePath - Absolute path to the todo file
  * @param {string} filename - Backup filename (validated against the pattern)

@@ -22,7 +22,7 @@ import {
 import { validatePath, validateFileExtension } from './server/pathUtils.js';
 import { sanitizeLinkCategories } from './server/linkValidation.js';
 import { isPathReferencedByCategories, getLocalFileContentType } from './server/localFile.js';
-import { createBackup, listBackups, readBackup } from './server/backups.js';
+import { createBackupBeforeWrite, listBackups, readBackup } from './server/backups.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -180,18 +180,10 @@ app.post('/api/todo', fileOperationLimiter, async (req, res) => {
 
     // Take a backup whenever the content actually changes, so the Backups tab
     // reflects each distinct saved state. Backup failures must not block saving.
-    let previousContent = null;
     try {
-      previousContent = await fs.readFile(TODO_FILE_PATH, 'utf-8');
-    } catch {
-      previousContent = null;
-    }
-    if (previousContent !== content) {
-      try {
-        await createBackup(TODO_FILE_PATH, content);
-      } catch (backupError) {
-        console.error('Error creating backup:', backupError);
-      }
+      await createBackupBeforeWrite(TODO_FILE_PATH, content);
+    } catch (backupError) {
+      console.error('Error creating backup:', backupError);
     }
 
     await fs.writeFile(TODO_FILE_PATH, content, 'utf-8');

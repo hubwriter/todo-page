@@ -4,6 +4,7 @@ import os from 'os';
 import { join } from 'path';
 import {
   createBackup,
+  createBackupBeforeWrite,
   listBackups,
   listBackupFiles,
   readBackup,
@@ -39,6 +40,23 @@ describe('server/backups', () => {
     expect(second).toBe('todo-backup-20260728T143053.md');
     expect(await fs.readFile(join(dir, first), 'utf-8')).toBe('first');
     expect(await fs.readFile(join(dir, second), 'utf-8')).toBe('second');
+  });
+
+  it('backs up the previous content before a changed file is written', async () => {
+    await fs.writeFile(todoPath, 'previous content', 'utf-8');
+
+    const filename = await createBackupBeforeWrite(todoPath, 'new content');
+
+    expect(filename).toMatch(/^todo-backup-\d{8}T\d{6}\.md$/);
+    expect(await fs.readFile(join(dir, filename), 'utf-8')).toBe('previous content');
+    expect(await fs.readFile(todoPath, 'utf-8')).toBe('previous content');
+  });
+
+  it('does not create a backup when the content is unchanged', async () => {
+    await fs.writeFile(todoPath, 'same content', 'utf-8');
+
+    expect(await createBackupBeforeWrite(todoPath, 'same content')).toBeNull();
+    expect(await listBackupFiles(todoPath)).toEqual([]);
   });
 
   it('lists backups newest first with ISO timestamps', async () => {
