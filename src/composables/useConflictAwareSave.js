@@ -341,7 +341,6 @@ export function useConflictAwareSave({
     const validation = validate(attemptedCandidate);
     if (!validation.valid) {
       error.value = validation.error;
-      unresolved.value = true;
       persistDraft();
       const validationError = new Error(validation.error);
       validationError.userMessage = validation.error;

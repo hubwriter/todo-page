@@ -54,39 +54,43 @@ export function enqueueResourceWrite(resource, operation) {
   });
 }
 
+async function publishFileIfMissing({ resource, filePath, defaultContent, beforePublish }) {
+  const temporaryPath = join(dirname(filePath), `.${resource}-${randomUUID()}.tmp`);
+
+  try {
+    const handle = await fs.open(temporaryPath, 'wx');
+    try {
+      await handle.writeFile(defaultContent, { encoding: 'utf-8' });
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+
+    if (beforePublish) await beforePublish();
+
+    try {
+      await fs.link(temporaryPath, filePath);
+      return { created: true };
+    } catch (error) {
+      if (error?.code === 'EEXIST') {
+        return { created: false };
+      }
+      throw error;
+    }
+  } finally {
+    await fs.unlink(temporaryPath).catch(() => {});
+  }
+}
+
 export function ensureVersionedFileExists({
   resource,
   filePath,
   defaultContent,
   beforePublish
 }) {
-  return enqueueResourceWrite(resource, async () => {
-    const temporaryPath = join(dirname(filePath), `.${resource}-${randomUUID()}.tmp`);
-
-    try {
-      const handle = await fs.open(temporaryPath, 'wx');
-      try {
-        await handle.writeFile(defaultContent, { encoding: 'utf-8' });
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-
-      if (beforePublish) await beforePublish();
-
-      try {
-        await fs.link(temporaryPath, filePath);
-        return { created: true };
-      } catch (error) {
-        if (error?.code === 'EEXIST') {
-          return { created: false };
-        }
-        throw error;
-      }
-    } finally {
-      await fs.unlink(temporaryPath).catch(() => {});
-    }
-  });
+  return enqueueResourceWrite(resource, () =>
+    publishFileIfMissing({ resource, filePath, defaultContent, beforePublish })
+  );
 }
 
 export async function conditionalAtomicWrite({
@@ -94,12 +98,31 @@ export async function conditionalAtomicWrite({
   filePath,
   baseVersion,
   content,
+  missingContent,
   createBackup,
   validateCurrent,
   beforeRename
 }) {
   return enqueueResourceWrite(resource, async () => {
-    const current = await readVersionedFile(filePath);
+    const readCurrent = async () => {
+      try {
+        return { state: await readVersionedFile(filePath), wasMissing: false };
+      } catch (error) {
+        if (error?.code !== 'ENOENT' || missingContent === undefined) throw error;
+        await publishFileIfMissing({
+          resource,
+          filePath,
+          defaultContent: missingContent
+        });
+        return { state: await readVersionedFile(filePath), wasMissing: true };
+      }
+    };
+
+    const initial = await readCurrent();
+    const current = initial.state;
+    if (initial.wasMissing) {
+      return { status: 'conflict', latest: current };
+    }
     if (current.version !== baseVersion) {
       return { status: 'conflict', latest: current };
     }
@@ -110,7 +133,14 @@ export async function conditionalAtomicWrite({
 
     const nextBytes = Buffer.from(content, 'utf-8');
     const temporaryPath = join(dirname(filePath), `.${resource}-${randomUUID()}.tmp`);
-    const fileMode = (await fs.stat(filePath)).mode & 0o7777;
+    let fileMode;
+    try {
+      fileMode = (await fs.stat(filePath)).mode & 0o7777;
+    } catch (error) {
+      if (error?.code !== 'ENOENT' || missingContent === undefined) throw error;
+      const latest = await readCurrent();
+      return { status: 'conflict', latest: latest.state };
+    }
 
     try {
       const handle = await fs.open(temporaryPath, 'wx');
@@ -124,9 +154,9 @@ export async function conditionalAtomicWrite({
 
       if (beforeRename) await beforeRename();
 
-      const beforeBackup = await readVersionedFile(filePath);
-      if (beforeBackup.version !== current.version) {
-        return { status: 'conflict', latest: beforeBackup };
+      const beforeBackup = await readCurrent();
+      if (beforeBackup.wasMissing || beforeBackup.state.version !== current.version) {
+        return { status: 'conflict', latest: beforeBackup.state };
       }
 
       if (createBackup && !nextBytes.equals(current.bytes)) {
@@ -137,9 +167,9 @@ export async function conditionalAtomicWrite({
         }
       }
 
-      const finalCurrent = await readVersionedFile(filePath);
-      if (finalCurrent.version !== current.version) {
-        return { status: 'conflict', latest: finalCurrent };
+      const finalCurrent = await readCurrent();
+      if (finalCurrent.wasMissing || finalCurrent.state.version !== current.version) {
+        return { status: 'conflict', latest: finalCurrent.state };
       }
 
       await fs.rename(temporaryPath, filePath);

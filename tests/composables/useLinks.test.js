@@ -47,7 +47,7 @@ describe('useLinks', () => {
   });
 
   it('rejects invalid optimistic mutations and restores the previous Links state', async () => {
-    const { categories, addLink, error } = useLinks();
+    const { categories, addLink, error, unresolved } = useLinks();
 
     await expect(addLink({
       category: 'x'.repeat(101),
@@ -57,6 +57,7 @@ describe('useLinks', () => {
 
     expect(categories.value).toEqual([]);
     expect(error.value).toContain('Every category needs a valid name');
+    expect(unresolved.value).toBe(false);
     expect(apiSaveLinks).not.toHaveBeenCalled();
   });
 

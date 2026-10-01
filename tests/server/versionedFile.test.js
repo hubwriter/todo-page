@@ -81,6 +81,23 @@ describe('versioned file writes', () => {
     expect(['one', 'two']).toContain(await fs.readFile(filePath, 'utf-8'));
   });
 
+  it('recreates a deleted file and returns a mergeable conflict', async () => {
+    const { version } = await readVersionedFile(filePath);
+    await fs.unlink(filePath);
+
+    const result = await conditionalAtomicWrite({
+      resource: 'todo-missing-test',
+      filePath,
+      baseVersion: version,
+      content: 'local edit',
+      missingContent: 'default content'
+    });
+
+    expect(result.status).toBe('conflict');
+    expect(result.latest.content).toBe('default content');
+    expect(await fs.readFile(filePath, 'utf-8')).toBe('default content');
+  });
+
   it('does not expose the temporary content before the atomic rename', async () => {
     const { version } = await readVersionedFile(filePath);
     let observed;

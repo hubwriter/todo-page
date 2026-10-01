@@ -188,6 +188,58 @@ describe('concurrency API', () => {
     expect(JSON.parse(await fs.readFile(linksPath, 'utf-8'))[0].links[0].id).toBe(durableId);
   });
 
+  it('returns a mergeable conflict when the todo file is deleted externally', async () => {
+    const loaded = await fetch(`${baseUrl}/api/todo`).then((response) => response.json());
+    await fs.unlink(todoPath);
+
+    const stale = await fetch(`${baseUrl}/api/todo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'local todo edit', baseVersion: loaded.version })
+    });
+
+    expect(stale.status).toBe(409);
+    const latest = await stale.json();
+    expect(latest.version).toBeTruthy();
+    expect(latest.content).toContain('# Priority');
+
+    const retry = await fetch(`${baseUrl}/api/todo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'local todo edit', baseVersion: latest.version })
+    });
+    expect(retry.status).toBe(200);
+    expect(await fs.readFile(todoPath, 'utf-8')).toBe('local todo edit');
+  });
+
+  it('returns a mergeable conflict when the Links file is deleted externally', async () => {
+    const loaded = await fetch(`${baseUrl}/api/links`).then((response) => response.json());
+    await fs.unlink(linksPath);
+    const local = [{
+      name: 'Recovered',
+      links: [{ id: 'recovered', url: 'https://recovered.test', description: 'Recovered' }]
+    }];
+
+    const stale = await fetch(`${baseUrl}/api/links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: local, baseVersion: loaded.version })
+    });
+
+    expect(stale.status).toBe(409);
+    const latest = await stale.json();
+    expect(latest).toMatchObject({ categories: [], invalid: false });
+    expect(latest.version).toBeTruthy();
+
+    const retry = await fetch(`${baseUrl}/api/links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: local, baseVersion: latest.version })
+    });
+    expect(retry.status).toBe(200);
+    expect(JSON.parse(await fs.readFile(linksPath, 'utf-8'))).toEqual(local);
+  });
+
 });
 
 describe('backup failure API', () => {
@@ -288,6 +340,8 @@ describe('configured todo symlink API', () => {
   let targetDir;
   let todoLinkPath;
   let todoTargetPath;
+  let linksLinkPath;
+  let linksTargetPath;
   let child;
   let baseUrl;
 
@@ -299,12 +353,15 @@ describe('configured todo symlink API', () => {
     await fs.mkdir(targetDir);
     todoLinkPath = join(configuredDir, 'todo.md');
     todoTargetPath = join(targetDir, 'todo.md');
+    linksLinkPath = join(configuredDir, 'links.json');
+    linksTargetPath = join(targetDir, 'actual-links.json');
     await fs.writeFile(todoTargetPath, '# Priority\n\n- [ ] Original\n\n# Other\n\n# Done\n', 'utf-8');
     await fs.symlink(todoTargetPath, todoLinkPath);
-    await fs.writeFile(join(configuredDir, 'links.json'), JSON.stringify([{
+    await fs.writeFile(linksTargetPath, JSON.stringify([{
       name: 'Configured links',
       links: [{ id: 'configured', url: 'https://configured.test', description: 'Configured' }]
     }]), 'utf-8');
+    await fs.symlink(linksTargetPath, linksLinkPath);
 
     const port = 44000 + Math.floor(Math.random() * 1000);
     baseUrl = `http://127.0.0.1:${port}`;
@@ -341,6 +398,19 @@ describe('configured todo symlink API', () => {
     expect(links.categories[0].name).toBe('Configured links');
     await expect(fs.stat(join(targetDir, 'links.json'))).rejects.toMatchObject({ code: 'ENOENT' });
 
+    const changedLinks = [{
+      name: 'Configured links',
+      links: [{ id: 'configured', url: 'https://configured.test', description: 'Changed' }]
+    }];
+    const linksResponse = await fetch(`${baseUrl}/api/links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: changedLinks, baseVersion: links.version })
+    });
+    expect(linksResponse.status).toBe(200);
+    expect(await fs.readlink(linksLinkPath)).toBe(linksTargetPath);
+    expect(JSON.parse(await fs.readFile(linksTargetPath, 'utf-8'))).toEqual(changedLinks);
+
     const loaded = await fetch(`${baseUrl}/api/todo`).then((response) => response.json());
     const replacement = '# Priority\n\n- [ ] Replacement\n\n# Other\n\n# Done\n';
     const response = await fetch(`${baseUrl}/api/todo`, {
@@ -354,7 +424,9 @@ describe('configured todo symlink API', () => {
 
     const configuredEntries = await fs.readdir(configuredDir);
     expect(configuredEntries.some((name) => name.startsWith('todo-backup-'))).toBe(true);
+    expect(configuredEntries.some((name) => name.startsWith('links-backup-'))).toBe(true);
     const targetEntries = await fs.readdir(targetDir);
     expect(targetEntries.some((name) => name.startsWith('todo-backup-'))).toBe(false);
+    expect(targetEntries.some((name) => name.startsWith('actual-links-backup-'))).toBe(false);
   });
 });

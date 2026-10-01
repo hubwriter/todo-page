@@ -5,6 +5,7 @@ import { join } from 'path';
 import {
   createBackup,
   createBackupBeforeWrite,
+  createResourceBackup,
   listBackups,
   listBackupFiles,
   readBackup,
@@ -30,6 +31,15 @@ describe('server/backups', () => {
     expect(name).toBe('todo-backup-20260728T143052.md');
     const content = await fs.readFile(join(dir, name), 'utf-8');
     expect(content).toBe('hello');
+  });
+
+  it.each([
+    ['todo', async () => createBackup(todoPath, 'private todo')],
+    ['links', async () => createResourceBackup(todoPath, 'private links')]
+  ])('preserves restrictive source permissions for %s backups', async (_resource, create) => {
+    await fs.chmod(todoPath, 0o600);
+    const name = await create();
+    expect((await fs.stat(join(dir, name))).mode & 0o777).toBe(0o600);
   });
 
   it('avoids overwriting when two backups share the same second', async () => {

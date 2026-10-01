@@ -12,6 +12,22 @@ import {
 } from '../src/utils/backupUtils.js';
 import { MAX_BACKUPS } from '../src/constants.js';
 
+async function writeExclusiveBackup(filePath, content, mode) {
+  try {
+    await fs.writeFile(filePath, content, {
+      encoding: 'utf-8',
+      flag: 'wx',
+      mode
+    });
+    await fs.chmod(filePath, mode);
+  } catch (error) {
+    if (error?.code !== 'EEXIST') {
+      await fs.unlink(filePath).catch(() => {});
+    }
+    throw error;
+  }
+}
+
 /**
  * List all backup files alongside the todo file, newest first.
  * @param {string} todoFilePath - Absolute path to the todo file
@@ -73,12 +89,13 @@ export async function pruneBackups(todoFilePath, keep = MAX_BACKUPS) {
  */
 export async function createBackup(todoFilePath, content, now = new Date()) {
   const dir = dirname(todoFilePath);
+  const mode = (await fs.stat(todoFilePath)).mode & 0o7777;
   let timestamp = new Date(now.getTime());
   let filename = backupFileName(timestamp);
 
   while (true) {
     try {
-      await fs.writeFile(join(dir, filename), content, { encoding: 'utf-8', flag: 'wx' });
+      await writeExclusiveBackup(join(dir, filename), content, mode);
       break;
     } catch (error) {
       if (error?.code !== 'EEXIST') {
@@ -119,6 +136,7 @@ export async function createBackupBeforeWrite(todoFilePath, nextContent) {
  */
 export async function createResourceBackup(filePath, content, now = new Date()) {
   const dir = dirname(filePath);
+  const mode = (await fs.stat(filePath)).mode & 0o7777;
   const extension = extname(filePath);
   const stem = basename(filePath, extension);
   const prefix = `${stem}-backup-`;
@@ -128,7 +146,7 @@ export async function createResourceBackup(filePath, content, now = new Date()) 
     const timestamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
     filename = `${prefix}${timestamp}${extension}`;
     try {
-      await fs.writeFile(join(dir, filename), content, { encoding: 'utf-8', flag: 'wx' });
+      await writeExclusiveBackup(join(dir, filename), content, mode);
       break;
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error;

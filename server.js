@@ -149,11 +149,10 @@ async function getLinksFilePath(todoFilePath) {
   return filePath;
 }
 
-// Initialize links file path
-const LINKS_FILE_PATH = await resolveVersionedFilePath(
-  await getLinksFilePath(CONFIGURED_TODO_FILE_PATH),
-  'links'
-);
+// Preserve the configured path for backup placement while resolving the target
+// path for versioned I/O so atomic writes do not replace a symlink.
+const CONFIGURED_LINKS_FILE_PATH = await getLinksFilePath(CONFIGURED_TODO_FILE_PATH);
+const LINKS_FILE_PATH = await resolveVersionedFilePath(CONFIGURED_LINKS_FILE_PATH, 'links');
 
 console.log(`Using links file at: ${LINKS_FILE_PATH}`);
 
@@ -203,6 +202,7 @@ async function readLinksFile({ migrateLegacy = true } = {}) {
       filePath: LINKS_FILE_PATH,
       baseVersion: current.version,
       content: serialized,
+      missingContent: '[]',
       validateCurrent: ({ content }) => {
         try {
           const latest = sanitizeLinkCategories(JSON.parse(content));
@@ -213,7 +213,7 @@ async function readLinksFile({ migrateLegacy = true } = {}) {
           return { ok: false, error: `links.json contains invalid JSON: ${error.message}` };
         }
       },
-      createBackup: (previousContent) => createResourceBackup(LINKS_FILE_PATH, previousContent)
+      createBackup: (previousContent) => createResourceBackup(CONFIGURED_LINKS_FILE_PATH, previousContent)
     });
     if (result.status === 'written') {
       return {
@@ -283,6 +283,7 @@ app.post('/api/todo', fileOperationLimiter, async (req, res) => {
       filePath: TODO_FILE_PATH,
       baseVersion,
       content,
+      missingContent: DEFAULT_TODO_CONTENT,
       createBackup: (previousContent) => createBackup(CONFIGURED_TODO_FILE_PATH, previousContent)
     });
 
@@ -395,6 +396,7 @@ app.post('/api/links', fileOperationLimiter, async (req, res) => {
       filePath: LINKS_FILE_PATH,
       baseVersion,
       content: serialized,
+      missingContent: '[]',
       validateCurrent: ({ content }) => {
         if (replaceInvalid) return { ok: true };
         try {
@@ -406,7 +408,7 @@ app.post('/api/links', fileOperationLimiter, async (req, res) => {
           return { ok: false, error: 'links.json is invalid and requires explicit replacement' };
         }
       },
-      createBackup: (previousContent) => createResourceBackup(LINKS_FILE_PATH, previousContent)
+      createBackup: (previousContent) => createResourceBackup(CONFIGURED_LINKS_FILE_PATH, previousContent)
     });
 
     if (result.status === 'conflict') {
