@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   fileUrlToNormalizedPath,
   isPathReferencedByCategories,
+  isPathAllowedByCategories,
   getLocalFileContentType
 } from '../../server/localFile.js';
 
@@ -39,7 +40,35 @@ describe('isPathReferencedByCategories', () => {
   });
 });
 
+describe('isPathAllowedByCategories', () => {
+  const categories = [{
+    name: 'Local',
+    links: [
+      { id: 'h', url: 'file:///Users/me/site/page.html', description: '' },
+      { id: 'm', url: 'file:///Users/me/notes/notes.md', description: '' }
+    ]
+  }];
+
+  it('allows files in the folder of a linked HTML page', () => {
+    expect(isPathAllowedByCategories(categories, '/Users/me/site/css/styles.css')).toBe(true);
+    expect(isPathAllowedByCategories(categories, '/Users/me/site/other.html')).toBe(true);
+  });
+
+  it('does not allow files outside that folder or beside non-HTML links', () => {
+    expect(isPathAllowedByCategories(categories, '/Users/me/todo.md')).toBe(false);
+    expect(isPathAllowedByCategories(categories, '/Users/me/site-other/x.css')).toBe(false);
+    expect(isPathAllowedByCategories(categories, '/Users/me/notes/secret.txt')).toBe(false);
+  });
+});
+
 describe('getLocalFileContentType', () => {
+  it('serves HTML pages and their CSS and scripts with real types', () => {
+    expect(getLocalFileContentType('/x/page.html')).toBe('text/html; charset=utf-8');
+    expect(getLocalFileContentType('/x/PAGE.HTM')).toBe('text/html; charset=utf-8');
+    expect(getLocalFileContentType('/x/styles.css')).toBe('text/css; charset=utf-8');
+    expect(getLocalFileContentType('/x/app.js')).toBe('text/javascript; charset=utf-8');
+  });
+
   it('serves markdown/text as plain text', () => {
     expect(getLocalFileContentType('/x/notes.md')).toBe('text/plain; charset=utf-8');
     expect(getLocalFileContentType('/x/file.txt')).toBe('text/plain; charset=utf-8');
