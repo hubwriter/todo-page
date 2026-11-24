@@ -78,7 +78,7 @@ describe('LinkList', () => {
     try {
       const wrapper = mount(LinkList, { props: { category: 'C', links } });
       await wrapper.findAll('li.link-item')[1].find('a.link-url').trigger('click');
-      expect(assign).toHaveBeenCalledWith('/api/local-file?path=' + encodeURIComponent('/Users/me/notes.md'));
+      expect(assign).toHaveBeenCalledWith('/api/local-file/Users/me/notes.md');
     } finally {
       Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
     }

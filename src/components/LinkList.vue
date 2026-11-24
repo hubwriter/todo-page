@@ -96,7 +96,7 @@ function fileUrlToPath(url) {
 function onLinkClick(event, url) {
   if (!isFileUrl(url)) return;
   event.preventDefault();
-  const proxyUrl = `/api/local-file?path=${encodeURIComponent(fileUrlToPath(url))}`;
+  const proxyUrl = '/api/local-file' + fileUrlToPath(url).split('/').map(encodeURIComponent).join('/');
   window.location.assign(proxyUrl);
 }
 </script>

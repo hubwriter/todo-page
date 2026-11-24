@@ -21,7 +21,7 @@ import {
 } from './src/constants.js';
 import { validatePath, validateFileExtension } from './server/pathUtils.js';
 import { sanitizeLinkCategories } from './server/linkValidation.js';
-import { isPathReferencedByCategories, getLocalFileContentType } from './server/localFile.js';
+import { isPathAllowedByCategories, getLocalFileContentType } from './server/localFile.js';
 import { createBackup, createResourceBackup, listBackups, readBackup } from './server/backups.js';
 import {
   BackupError,
@@ -502,22 +502,23 @@ app.get('/api/image', fileOperationLimiter, async (req, res) => {
   }
 });
 
-// Only files referenced by a saved file:// link may be served, so that this
-// endpoint cannot be used to read arbitrary local files.
+// Only saved file:// links (and files in the folder of a linked HTML page) may be
+// served, so that this endpoint cannot be used to read arbitrary local files.
 async function isPathReferencedByLink(normalizedPath) {
   try {
     const content = await fs.readFile(LINKS_FILE_PATH, 'utf-8');
-    return isPathReferencedByCategories(JSON.parse(content), normalizedPath);
+    return isPathAllowedByCategories(JSON.parse(content), normalizedPath);
   } catch {
     return false;
   }
 }
 
 // Serve a local file referenced by a saved file:// link (browsers block
-// navigating to file:// URLs directly from an http page)
-app.get('/api/local-file', fileOperationLimiter, async (req, res) => {
+// navigating to file:// URLs directly from an http page). The path-style form,
+// /api/local-file/Users/me/page.html, lets an HTML page's relative URLs resolve.
+app.get(['/api/local-file', '/api/local-file/*'], fileOperationLimiter, async (req, res) => {
   try {
-    const { path: requestedPath } = req.query;
+    const requestedPath = req.params[0] !== undefined ? `/${req.params[0]}` : req.query.path;
 
     if (!requestedPath || typeof requestedPath !== 'string') {
       return res.status(400).json({ error: 'File path is required' });
